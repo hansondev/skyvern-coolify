@@ -28,8 +28,9 @@ from .errors.forbidden_error import ForbiddenError
 import datetime as dt
 from .types.totp_code import TotpCode
 from .types.credential_response import CredentialResponse
-from .types.credential_type import CredentialType
+from .types.skyvern_forge_sdk_schemas_credentials_credential_type import SkyvernForgeSdkSchemasCredentialsCredentialType
 from .types.create_credential_request_credential import CreateCredentialRequestCredential
+from .types.skyvern_schemas_run_blocks_credential_type import SkyvernSchemasRunBlocksCredentialType
 from .core.client_wrapper import AsyncClientWrapper
 
 # this is used as the default value for optional parameters
@@ -1145,7 +1146,7 @@ class Skyvern:
         self, *, timeout: typing.Optional[int] = OMIT, request_options: typing.Optional[RequestOptions] = None
     ) -> BrowserSessionResponse:
         """
-        Create a new browser session
+        Create a browser session that persists across multiple runs
 
         Parameters
         ----------
@@ -1220,7 +1221,7 @@ class Skyvern:
         self, browser_session_id: str, *, request_options: typing.Optional[RequestOptions] = None
     ) -> typing.Optional[typing.Any]:
         """
-        Close a browser session
+        Close a session. Once closed, the session cannot be used again.
 
         Parameters
         ----------
@@ -1290,7 +1291,7 @@ class Skyvern:
         self, browser_session_id: str, *, request_options: typing.Optional[RequestOptions] = None
     ) -> BrowserSessionResponse:
         """
-        Get details about a specific browser session by ID
+        Get details about a specific browser session, including the browser address for cdp connection.
 
         Parameters
         ----------
@@ -1543,7 +1544,7 @@ class Skyvern:
         self,
         *,
         name: str,
-        credential_type: CredentialType,
+        credential_type: SkyvernForgeSdkSchemasCredentialsCredentialType,
         credential: CreateCredentialRequestCredential,
         request_options: typing.Optional[RequestOptions] = None,
     ) -> CredentialResponse:
@@ -1555,7 +1556,7 @@ class Skyvern:
         name : str
             Name of the credential
 
-        credential_type : CredentialType
+        credential_type : SkyvernForgeSdkSchemasCredentialsCredentialType
             Type of credential to create
 
         credential : CreateCredentialRequestCredential
@@ -1720,6 +1721,146 @@ class Skyvern:
                     CredentialResponse,
                     parse_obj_as(
                         type_=CredentialResponse,  # type: ignore
+                        object_=_response.json(),
+                    ),
+                )
+            if _response.status_code == 422:
+                raise UnprocessableEntityError(
+                    typing.cast(
+                        typing.Optional[typing.Any],
+                        parse_obj_as(
+                            type_=typing.Optional[typing.Any],  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    )
+                )
+            _response_json = _response.json()
+        except JSONDecodeError:
+            raise ApiError(status_code=_response.status_code, body=_response.text)
+        raise ApiError(status_code=_response.status_code, body=_response_json)
+
+    def login(
+        self,
+        *,
+        credential_type: SkyvernSchemasRunBlocksCredentialType,
+        url: typing.Optional[str] = OMIT,
+        prompt: typing.Optional[str] = OMIT,
+        webhook_url: typing.Optional[str] = OMIT,
+        proxy_location: typing.Optional[ProxyLocation] = OMIT,
+        totp_identifier: typing.Optional[str] = OMIT,
+        totp_url: typing.Optional[str] = OMIT,
+        browser_session_id: typing.Optional[str] = OMIT,
+        extra_http_headers: typing.Optional[typing.Dict[str, typing.Optional[str]]] = OMIT,
+        max_screenshot_scrolling_times: typing.Optional[int] = OMIT,
+        credential_id: typing.Optional[str] = OMIT,
+        bitwarden_collection_id: typing.Optional[str] = OMIT,
+        bitwarden_item_id: typing.Optional[str] = OMIT,
+        onepassword_vault_id: typing.Optional[str] = OMIT,
+        onepassword_item_id: typing.Optional[str] = OMIT,
+        request_options: typing.Optional[RequestOptions] = None,
+    ) -> WorkflowRunResponse:
+        """
+        Log in to a website using either credential stored in Skyvern, Bitwarden or 1Password
+
+        Parameters
+        ----------
+        credential_type : SkyvernSchemasRunBlocksCredentialType
+            Where to get the credential from
+
+        url : typing.Optional[str]
+            Website url
+
+        prompt : typing.Optional[str]
+            Login instructions. Skyvern has default prompt/instruction for login if this field is not provided.
+
+        webhook_url : typing.Optional[str]
+            Webhook URL to send login status updates
+
+        proxy_location : typing.Optional[ProxyLocation]
+            Proxy location to use
+
+        totp_identifier : typing.Optional[str]
+            Identifier for TOTP (Time-based One-Time Password) if required
+
+        totp_url : typing.Optional[str]
+            TOTP URL to fetch one-time passwords
+
+        browser_session_id : typing.Optional[str]
+            ID of the browser session to use, which is prefixed by `pbs_` e.g. `pbs_123456`
+
+        extra_http_headers : typing.Optional[typing.Dict[str, typing.Optional[str]]]
+            Additional HTTP headers to include in requests
+
+        max_screenshot_scrolling_times : typing.Optional[int]
+            Maximum number of times to scroll for screenshots
+
+        credential_id : typing.Optional[str]
+            ID of the Skyvern credential to use for login.
+
+        bitwarden_collection_id : typing.Optional[str]
+            Bitwarden collection ID. You can find it in the Bitwarden collection URL. e.g. `https://vault.bitwarden.com/vaults/collection_id/items`
+
+        bitwarden_item_id : typing.Optional[str]
+            Bitwarden item ID
+
+        onepassword_vault_id : typing.Optional[str]
+            1Password vault ID
+
+        onepassword_item_id : typing.Optional[str]
+            1Password item ID
+
+        request_options : typing.Optional[RequestOptions]
+            Request-specific configuration.
+
+        Returns
+        -------
+        WorkflowRunResponse
+            Successful Response
+
+        Examples
+        --------
+        from skyvern import Skyvern
+
+        client = Skyvern(
+            api_key="YOUR_API_KEY",
+            x_api_key="YOUR_X_API_KEY",
+        )
+        client.login(
+            credential_type="skyvern",
+        )
+        """
+        _response = self._client_wrapper.httpx_client.request(
+            "v1/run/tasks/login",
+            method="POST",
+            json={
+                "credential_type": credential_type,
+                "url": url,
+                "prompt": prompt,
+                "webhook_url": webhook_url,
+                "proxy_location": proxy_location,
+                "totp_identifier": totp_identifier,
+                "totp_url": totp_url,
+                "browser_session_id": browser_session_id,
+                "extra_http_headers": extra_http_headers,
+                "max_screenshot_scrolling_times": max_screenshot_scrolling_times,
+                "credential_id": credential_id,
+                "bitwarden_collection_id": bitwarden_collection_id,
+                "bitwarden_item_id": bitwarden_item_id,
+                "onepassword_vault_id": onepassword_vault_id,
+                "onepassword_item_id": onepassword_item_id,
+            },
+            headers={
+                "content-type": "application/json",
+            },
+            request_options=request_options,
+            omit=OMIT,
+        )
+        try:
+            if 200 <= _response.status_code < 300:
+                return typing.cast(
+                    WorkflowRunResponse,
+                    parse_obj_as(
+                        type_=WorkflowRunResponse,  # type: ignore
                         object_=_response.json(),
                     ),
                 )
@@ -2946,7 +3087,7 @@ class AsyncSkyvern:
         self, *, timeout: typing.Optional[int] = OMIT, request_options: typing.Optional[RequestOptions] = None
     ) -> BrowserSessionResponse:
         """
-        Create a new browser session
+        Create a browser session that persists across multiple runs
 
         Parameters
         ----------
@@ -3029,7 +3170,7 @@ class AsyncSkyvern:
         self, browser_session_id: str, *, request_options: typing.Optional[RequestOptions] = None
     ) -> typing.Optional[typing.Any]:
         """
-        Close a browser session
+        Close a session. Once closed, the session cannot be used again.
 
         Parameters
         ----------
@@ -3107,7 +3248,7 @@ class AsyncSkyvern:
         self, browser_session_id: str, *, request_options: typing.Optional[RequestOptions] = None
     ) -> BrowserSessionResponse:
         """
-        Get details about a specific browser session by ID
+        Get details about a specific browser session, including the browser address for cdp connection.
 
         Parameters
         ----------
@@ -3384,7 +3525,7 @@ class AsyncSkyvern:
         self,
         *,
         name: str,
-        credential_type: CredentialType,
+        credential_type: SkyvernForgeSdkSchemasCredentialsCredentialType,
         credential: CreateCredentialRequestCredential,
         request_options: typing.Optional[RequestOptions] = None,
     ) -> CredentialResponse:
@@ -3396,7 +3537,7 @@ class AsyncSkyvern:
         name : str
             Name of the credential
 
-        credential_type : CredentialType
+        credential_type : SkyvernForgeSdkSchemasCredentialsCredentialType
             Type of credential to create
 
         credential : CreateCredentialRequestCredential
@@ -3587,6 +3728,154 @@ class AsyncSkyvern:
                     CredentialResponse,
                     parse_obj_as(
                         type_=CredentialResponse,  # type: ignore
+                        object_=_response.json(),
+                    ),
+                )
+            if _response.status_code == 422:
+                raise UnprocessableEntityError(
+                    typing.cast(
+                        typing.Optional[typing.Any],
+                        parse_obj_as(
+                            type_=typing.Optional[typing.Any],  # type: ignore
+                            object_=_response.json(),
+                        ),
+                    )
+                )
+            _response_json = _response.json()
+        except JSONDecodeError:
+            raise ApiError(status_code=_response.status_code, body=_response.text)
+        raise ApiError(status_code=_response.status_code, body=_response_json)
+
+    async def login(
+        self,
+        *,
+        credential_type: SkyvernSchemasRunBlocksCredentialType,
+        url: typing.Optional[str] = OMIT,
+        prompt: typing.Optional[str] = OMIT,
+        webhook_url: typing.Optional[str] = OMIT,
+        proxy_location: typing.Optional[ProxyLocation] = OMIT,
+        totp_identifier: typing.Optional[str] = OMIT,
+        totp_url: typing.Optional[str] = OMIT,
+        browser_session_id: typing.Optional[str] = OMIT,
+        extra_http_headers: typing.Optional[typing.Dict[str, typing.Optional[str]]] = OMIT,
+        max_screenshot_scrolling_times: typing.Optional[int] = OMIT,
+        credential_id: typing.Optional[str] = OMIT,
+        bitwarden_collection_id: typing.Optional[str] = OMIT,
+        bitwarden_item_id: typing.Optional[str] = OMIT,
+        onepassword_vault_id: typing.Optional[str] = OMIT,
+        onepassword_item_id: typing.Optional[str] = OMIT,
+        request_options: typing.Optional[RequestOptions] = None,
+    ) -> WorkflowRunResponse:
+        """
+        Log in to a website using either credential stored in Skyvern, Bitwarden or 1Password
+
+        Parameters
+        ----------
+        credential_type : SkyvernSchemasRunBlocksCredentialType
+            Where to get the credential from
+
+        url : typing.Optional[str]
+            Website url
+
+        prompt : typing.Optional[str]
+            Login instructions. Skyvern has default prompt/instruction for login if this field is not provided.
+
+        webhook_url : typing.Optional[str]
+            Webhook URL to send login status updates
+
+        proxy_location : typing.Optional[ProxyLocation]
+            Proxy location to use
+
+        totp_identifier : typing.Optional[str]
+            Identifier for TOTP (Time-based One-Time Password) if required
+
+        totp_url : typing.Optional[str]
+            TOTP URL to fetch one-time passwords
+
+        browser_session_id : typing.Optional[str]
+            ID of the browser session to use, which is prefixed by `pbs_` e.g. `pbs_123456`
+
+        extra_http_headers : typing.Optional[typing.Dict[str, typing.Optional[str]]]
+            Additional HTTP headers to include in requests
+
+        max_screenshot_scrolling_times : typing.Optional[int]
+            Maximum number of times to scroll for screenshots
+
+        credential_id : typing.Optional[str]
+            ID of the Skyvern credential to use for login.
+
+        bitwarden_collection_id : typing.Optional[str]
+            Bitwarden collection ID. You can find it in the Bitwarden collection URL. e.g. `https://vault.bitwarden.com/vaults/collection_id/items`
+
+        bitwarden_item_id : typing.Optional[str]
+            Bitwarden item ID
+
+        onepassword_vault_id : typing.Optional[str]
+            1Password vault ID
+
+        onepassword_item_id : typing.Optional[str]
+            1Password item ID
+
+        request_options : typing.Optional[RequestOptions]
+            Request-specific configuration.
+
+        Returns
+        -------
+        WorkflowRunResponse
+            Successful Response
+
+        Examples
+        --------
+        import asyncio
+
+        from skyvern import AsyncSkyvern
+
+        client = AsyncSkyvern(
+            api_key="YOUR_API_KEY",
+            x_api_key="YOUR_X_API_KEY",
+        )
+
+
+        async def main() -> None:
+            await client.login(
+                credential_type="skyvern",
+            )
+
+
+        asyncio.run(main())
+        """
+        _response = await self._client_wrapper.httpx_client.request(
+            "v1/run/tasks/login",
+            method="POST",
+            json={
+                "credential_type": credential_type,
+                "url": url,
+                "prompt": prompt,
+                "webhook_url": webhook_url,
+                "proxy_location": proxy_location,
+                "totp_identifier": totp_identifier,
+                "totp_url": totp_url,
+                "browser_session_id": browser_session_id,
+                "extra_http_headers": extra_http_headers,
+                "max_screenshot_scrolling_times": max_screenshot_scrolling_times,
+                "credential_id": credential_id,
+                "bitwarden_collection_id": bitwarden_collection_id,
+                "bitwarden_item_id": bitwarden_item_id,
+                "onepassword_vault_id": onepassword_vault_id,
+                "onepassword_item_id": onepassword_item_id,
+            },
+            headers={
+                "content-type": "application/json",
+            },
+            request_options=request_options,
+            omit=OMIT,
+        )
+        try:
+            if 200 <= _response.status_code < 300:
+                return typing.cast(
+                    WorkflowRunResponse,
+                    parse_obj_as(
+                        type_=WorkflowRunResponse,  # type: ignore
                         object_=_response.json(),
                     ),
                 )

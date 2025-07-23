@@ -7,6 +7,11 @@ from skyvern.config import settings
 from skyvern.exceptions import MissingBrowserAddressError
 from skyvern.forge import app
 from skyvern.forge.sdk.core import skyvern_context
+from skyvern.forge.sdk.routes.code_samples import (
+    LOGIN_CODE_SAMPLE_BITWARDEN,
+    LOGIN_CODE_SAMPLE_ONEPASSWORD,
+    LOGIN_CODE_SAMPLE_SKYVERN,
+)
 from skyvern.forge.sdk.routes.routers import base_router
 from skyvern.forge.sdk.schemas.organizations import Organization
 from skyvern.forge.sdk.services import org_auth_service
@@ -34,7 +39,31 @@ If login is completed, you're successful."""
 
 @base_router.post(
     "/run/tasks/login",
+    tags=["Agent"],
     response_model=WorkflowRunResponse,
+    openapi_extra={
+        "x-fern-sdk-method-name": "login",
+        "x-fern-examples": [
+            {
+                "code-samples": [
+                    {
+                        "sdk": "python",
+                        "code": LOGIN_CODE_SAMPLE_SKYVERN,
+                    },
+                    {
+                        "sdk": "python",
+                        "code": LOGIN_CODE_SAMPLE_BITWARDEN,
+                    },
+                    {
+                        "sdk": "python",
+                        "code": LOGIN_CODE_SAMPLE_ONEPASSWORD,
+                    },
+                ]
+            }
+        ],
+    },
+    description="Log in to a website using either credential stored in Skyvern, Bitwarden or 1Password",
+    summary="Login Task",
 )
 async def login(
     request: Request,
@@ -56,6 +85,8 @@ async def login(
     yaml_parameters = []
     parameter_key = "credential"
     if login_request.credential_type == CredentialType.skyvern:
+        if not login_request.credential_id:
+            raise HTTPException(status_code=400, detail="credential_id is required to login with Skyvern credential")
         credential = await app.DATABASE.get_credential(login_request.credential_id, organization.organization_id)
         if not credential:
             raise HTTPException(status_code=404, detail=f"Credential {login_request.credential_id} not found")
@@ -72,8 +103,8 @@ async def login(
         yaml_parameters = [
             BitwardenLoginCredentialParameterYAML(
                 key=parameter_key,
-                collection_id=login_request.collection_id,
-                item_id=login_request.item_id,
+                collection_id=login_request.bitwarden_collection_id,
+                item_id=login_request.bitwarden_item_id,
                 url=login_request.url,
                 description="The ID of the bitwarden collection to use for login",
                 bitwarden_client_id_aws_secret_key="SKYVERN_BITWARDEN_CLIENT_ID",
@@ -82,11 +113,19 @@ async def login(
             )
         ]
     elif login_request.credential_type == CredentialType.onepassword:
+        if not login_request.onepassword_vault_id:
+            raise HTTPException(
+                status_code=400, detail="onepassword_vault_id is required to login with 1Password credential"
+            )
+        if not login_request.onepassword_item_id:
+            raise HTTPException(
+                status_code=400, detail="onepassword_item_id is required to login with 1Password credential"
+            )
         yaml_parameters = [
             OnePasswordCredentialParameterYAML(
                 key=parameter_key,
-                vault_id=login_request.vault_id,
-                item_id=login_request.item_id,
+                vault_id=login_request.onepassword_vault_id,
+                item_id=login_request.onepassword_item_id,
             )
         ]
 

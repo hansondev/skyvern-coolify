@@ -60,7 +60,7 @@ from .credential_parameter import CredentialParameter
 from .credential_parameter_yaml import CredentialParameterYaml
 from .credential_response import CredentialResponse
 from .credential_response_credential import CredentialResponseCredential
-from .credential_type import CredentialType
+from .credential_type_output import CredentialTypeOutput
 from .credit_card_credential_response import CreditCardCredentialResponse
 from .download_to_s3block import DownloadToS3Block
 from .download_to_s3block_yaml import DownloadToS3BlockYaml
@@ -230,6 +230,8 @@ from .run_engine import RunEngine
 from .run_status import RunStatus
 from .send_email_block import SendEmailBlock
 from .send_email_block_yaml import SendEmailBlockYaml
+from .skyvern_forge_sdk_schemas_credentials_credential_type import SkyvernForgeSdkSchemasCredentialsCredentialType
+from .skyvern_schemas_run_blocks_credential_type import SkyvernSchemasRunBlocksCredentialType
 from .task_block import TaskBlock
 from .task_block_data_schema import TaskBlockDataSchema
 from .task_block_parameters_item import (
@@ -455,7 +457,7 @@ __all__ = [
     "CredentialParameterYaml",
     "CredentialResponse",
     "CredentialResponseCredential",
-    "CredentialType",
+    "CredentialTypeOutput",
     "CreditCardCredentialResponse",
     "DownloadToS3Block",
     "DownloadToS3BlockYaml",
@@ -607,6 +609,8 @@ __all__ = [
     "RunStatus",
     "SendEmailBlock",
     "SendEmailBlockYaml",
+    "SkyvernForgeSdkSchemasCredentialsCredentialType",
+    "SkyvernSchemasRunBlocksCredentialType",
     "TaskBlock",
     "TaskBlockDataSchema",
     "TaskBlockParametersItem",
