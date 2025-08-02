@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, List, Sequence
 
 import structlog
-from sqlalchemy import and_, delete, desc, distinct, func, or_, pool, select, tuple_, update
+from sqlalchemy import and_, delete, distinct, func, or_, pool, select, tuple_, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
@@ -1313,6 +1313,8 @@ class AgentDB:
         version: int | None = None,
         is_saved_task: bool = False,
         status: WorkflowStatus = WorkflowStatus.published,
+        use_cache: bool = False,
+        cache_project_id: str | None = None,
     ) -> Workflow:
         async with self.Session() as session:
             workflow = WorkflowModel(
@@ -1330,6 +1332,8 @@ class AgentDB:
                 model=model,
                 is_saved_task=is_saved_task,
                 status=status,
+                use_cache=use_cache,
+                cache_project_id=cache_project_id,
             )
             if workflow_permanent_id:
                 workflow.workflow_permanent_id = workflow_permanent_id
@@ -1508,6 +1512,8 @@ class AgentDB:
         description: str | None = None,
         workflow_definition: dict[str, Any] | None = None,
         version: int | None = None,
+        use_cache: bool | None = None,
+        cache_project_id: str | None = None,
     ) -> Workflow:
         try:
             async with self.Session() as session:
@@ -1517,14 +1523,18 @@ class AgentDB:
                 if organization_id:
                     get_workflow_query = get_workflow_query.filter_by(organization_id=organization_id)
                 if workflow := (await session.scalars(get_workflow_query)).first():
-                    if title:
+                    if title is not None:
                         workflow.title = title
-                    if description:
+                    if description is not None:
                         workflow.description = description
-                    if workflow_definition:
+                    if workflow_definition is not None:
                         workflow.workflow_definition = workflow_definition
-                    if version:
+                    if version is not None:
                         workflow.version = version
+                    if use_cache is not None:
+                        workflow.use_cache = use_cache
+                    if cache_project_id is not None:
+                        workflow.cache_project_id = cache_project_id
                     await session.commit()
                     await session.refresh(workflow)
                     return convert_to_workflow(workflow, self.debug_enabled)
@@ -3486,32 +3496,9 @@ class AgentDB:
 
             return DebugSession.model_validate(debug_session)
 
-    async def update_debug_session(
-        self,
-        *,
-        debug_session_id: str,
-        browser_session_id: str | None = None,
-    ) -> DebugSession:
-        async with self.Session() as session:
-            debug_session = (
-                await session.scalars(select(DebugSessionModel).filter_by(debug_session_id=debug_session_id))
-            ).first()
-
-            if not debug_session:
-                raise NotFoundError(f"Debug session {debug_session_id} not found")
-
-            if browser_session_id:
-                debug_session.browser_session_id = browser_session_id
-
-            await session.commit()
-            await session.refresh(debug_session)
-
-            return DebugSession.model_validate(debug_session)
-
     async def create_project(
         self,
         organization_id: str,
-        workflow_permanent_id: str | None = None,
         run_id: str | None = None,
         project_id: str | None = None,
         version: int | None = None,
@@ -3520,7 +3507,6 @@ class AgentDB:
             async with self.Session() as session:
                 project = ProjectModel(
                     organization_id=organization_id,
-                    workflow_permanent_id=workflow_permanent_id,
                     run_id=run_id,
                 )
                 if project_id:
@@ -3537,10 +3523,9 @@ class AgentDB:
 
     async def update_project(
         self,
-        project_id: str,
+        project_revision_id: str,
         organization_id: str,
         artifact_id: str | None = None,
-        workflow_permanent_id: str | None = None,
         run_id: str | None = None,
         version: int | None = None,
     ) -> Project:
@@ -3548,15 +3533,12 @@ class AgentDB:
             async with self.Session() as session:
                 get_project_query = (
                     select(ProjectModel)
-                    .filter_by(project_id=project_id)
                     .filter_by(organization_id=organization_id)
-                    .filter(ProjectModel.deleted_at.is_(None))
+                    .filter_by(project_revision_id=project_revision_id)
                 )
                 if project := (await session.scalars(get_project_query)).first():
                     if artifact_id:
                         project.artifact_id = artifact_id
-                    if workflow_permanent_id:
-                        project.workflow_permanent_id = workflow_permanent_id
                     if run_id:
                         project.run_id = run_id
                     if version:
@@ -3570,7 +3552,7 @@ class AgentDB:
             LOG.error("SQLAlchemyError", exc_info=True)
             raise
         except NotFoundError:
-            LOG.error("No project found to update", project_id=project_id)
+            LOG.error("No project found to update", project_revision_id=project_revision_id)
             raise
         except Exception:
             LOG.error("UnexpectedError", exc_info=True)
@@ -3638,7 +3620,7 @@ class AgentDB:
                     get_project_query = get_project_query.filter_by(version=version)
                 else:
                     # Get the latest version
-                    get_project_query = get_project_query.order_by(desc(ProjectModel.version)).limit(1)
+                    get_project_query = get_project_query.order_by(ProjectModel.version.desc()).limit(1)
 
                 if project := (await session.scalars(get_project_query)).first():
                     return convert_to_project(project)
@@ -3681,28 +3663,6 @@ class AgentDB:
                     artifact_id=artifact_id,
                 )
                 session.add(project_file)
-                await session.commit()
-        except SQLAlchemyError:
-            LOG.error("SQLAlchemyError", exc_info=True)
-            raise
-        except Exception:
-            LOG.error("UnexpectedError", exc_info=True)
-            raise
-
-    async def delete_project_files(
-        self,
-        project_revision_id: str,
-        organization_id: str,
-    ) -> None:
-        """Delete all files for a project revision."""
-        try:
-            async with self.Session() as session:
-                delete_files_query = (
-                    delete(ProjectFileModel)
-                    .where(ProjectFileModel.project_revision_id == project_revision_id)
-                    .where(ProjectFileModel.organization_id == organization_id)
-                )
-                await session.execute(delete_files_query)
                 await session.commit()
         except SQLAlchemyError:
             LOG.error("SQLAlchemyError", exc_info=True)
