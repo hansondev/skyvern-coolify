@@ -18,7 +18,6 @@ import {
 import { flushSync } from "react-dom";
 import Draggable from "react-draggable";
 
-import { OrgWalled } from "./Orgwalled";
 import {
   Tooltip,
   TooltipContent,
@@ -146,6 +145,7 @@ function getOs(): OS {
 function FloatingWindow({
   bounded,
   children,
+  initialPosition,
   initialWidth,
   initialHeight,
   maximized,
@@ -163,6 +163,7 @@ function FloatingWindow({
   bounded?: boolean;
   children: React.ReactNode;
   initialHeight?: number;
+  initialPosition?: { x: number; y: number };
   initialWidth?: number;
   maximized?: boolean;
   showCloseButton?: boolean;
@@ -178,22 +179,22 @@ function FloatingWindow({
 }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [isReloading, setIsReloading] = useState(false);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [position, setPosition] = useState(initialPosition ?? { x: 0, y: 0 });
   const [size, setSize] = useState({
-    left: 0,
-    top: 0,
+    left: initialPosition?.x ?? 0,
+    top: initialPosition?.y ?? 0,
     height: initialHeight ?? Constants.MinHeight,
     width: initialWidth ?? Constants.MinWidth,
   });
   const [lastSize, setLastSize] = useState({
-    left: 0,
-    top: 0,
+    left: initialPosition?.x ?? 0,
+    top: initialPosition?.y ?? 0,
     height: initialHeight ?? Constants.MinHeight,
     width: initialWidth ?? Constants.MinWidth,
   });
   const [restoreSize, setRestoreSize] = useState({
-    left: 0,
-    top: 0,
+    left: initialPosition?.x ?? 0,
+    top: initialPosition?.y ?? 0,
     height: initialHeight ?? Constants.MinHeight,
     width: initialWidth ?? Constants.MinWidth,
   });
@@ -287,13 +288,13 @@ function FloatingWindow({
       return;
     }
     setSize({
-      left: 0,
-      top: 0,
+      left: initialPosition?.x ?? 0,
+      top: initialPosition?.y ?? 0,
       width: initialWidth,
       height: initialHeight,
     });
-    setPosition({ x: 0, y: 0 });
-  }, [initialWidth, initialHeight]);
+    setPosition({ x: initialPosition?.x ?? 0, y: initialPosition?.y ?? 0 });
+  }, [initialWidth, initialHeight, initialPosition]);
 
   /**
    * Forces the sizing to take place after the resize is complete.
@@ -628,11 +629,7 @@ function FloatingWindow({
                         onClick={toggleMaximized}
                       />
                     )}
-                    {showPowerButton && (
-                      <OrgWalled className="flex items-center justify-center">
-                        <PowerButton onClick={() => cycle()} />
-                      </OrgWalled>
-                    )}
+                    {showPowerButton && <PowerButton onClick={() => cycle()} />}
                   </div>
                   <div className="ml-auto">{title}</div>
                   {showReloadButton && (
