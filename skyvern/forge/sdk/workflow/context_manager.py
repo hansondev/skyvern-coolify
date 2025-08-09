@@ -249,6 +249,8 @@ class WorkflowRunContext:
             self.values[parameter.key] = {}
             credential_dict = credential_item.model_dump()
             for key, value in credential_dict.items():
+                if value is None:
+                    continue
                 random_secret_id = self.generate_random_secret_id()
                 secret_id = f"{random_secret_id}_{key}"
                 self.secrets[secret_id] = value
@@ -259,7 +261,7 @@ class WorkflowRunContext:
                 totp_secret_id = f"{random_secret_id}_totp"
                 self.secrets[totp_secret_id] = BitwardenConstants.TOTP
                 totp_secret_value = self.totp_secret_value_key(totp_secret_id)
-                self.secrets[totp_secret_value] = credential_item.totp
+                self.secrets[totp_secret_value] = parse_totp_secret(credential_item.totp)
                 self.values[parameter.key]["totp"] = totp_secret_id
         except Exception as e:
             LOG.error(f"Failed to get credential from database: {credential_id}. Error: {e}")
@@ -305,7 +307,7 @@ class WorkflowRunContext:
             totp_secret_id = f"{random_secret_id}_totp"
             self.secrets[totp_secret_id] = BitwardenConstants.TOTP
             totp_secret_value = self.totp_secret_value_key(totp_secret_id)
-            self.secrets[totp_secret_value] = credential_item.totp
+            self.secrets[totp_secret_value] = parse_totp_secret(credential_item.totp)
             self.values[parameter.key]["totp"] = totp_secret_id
 
     async def register_aws_secret_parameter_value(
