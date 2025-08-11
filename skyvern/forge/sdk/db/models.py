@@ -241,7 +241,7 @@ class WorkflowModel(Base):
     persist_browser_session = Column(Boolean, default=False, nullable=False)
     model = Column(JSON, nullable=True)
     status = Column(String, nullable=False, default="published")
-    use_cache = Column(Boolean, default=False, nullable=False)
+    generate_script = Column(Boolean, default=False, nullable=False)
     cache_key = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
@@ -879,7 +879,7 @@ class ScriptBlockModel(Base):
     script_id = Column(String, nullable=False)
     script_revision_id = Column(String, nullable=False, index=True)
     script_block_label = Column(String, nullable=False)
-    script_file_id = Column(String, nullable=False)
+    script_file_id = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)

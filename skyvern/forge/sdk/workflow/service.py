@@ -11,8 +11,8 @@ from jinja2.sandbox import SandboxedEnvironment
 from skyvern import analytics
 from skyvern.config import settings
 from skyvern.constants import GET_DOWNLOADED_FILES_TIMEOUT, SAVE_DOWNLOADED_FILES_TIMEOUT
-from skyvern.core.code_generations.generate_code import generate_workflow_script as generate_python_workflow_script
-from skyvern.core.code_generations.transform_workflow_run import transform_workflow_run_to_code_gen_input
+from skyvern.core.script_generations.generate_script import generate_workflow_script as generate_python_workflow_script
+from skyvern.core.script_generations.transform_workflow_run import transform_workflow_run_to_code_gen_input
 from skyvern.exceptions import (
     BlockNotFound,
     BrowserSessionNotFound,
@@ -621,8 +621,14 @@ class WorkflowService:
             organization_id=organization_id,
         )
 
-        # TODO: generate script for workflow if the workflow.use_cache is True AND there's no script cached for the workflow
-        if workflow.use_cache:
+        # generate script for workflow if the workflow.generate_script is True AND there's no script cached for the workflow
+        if workflow.generate_script:
+            LOG.info(
+                "Generating script for workflow",
+                workflow_run_id=workflow_run_id,
+                workflow_id=workflow.workflow_id,
+                workflow_name=workflow.title,
+            )
             await self.generate_script_for_workflow(workflow=workflow, workflow_run=workflow_run)
 
         return workflow_run
@@ -645,7 +651,7 @@ class WorkflowService:
         is_saved_task: bool = False,
         status: WorkflowStatus = WorkflowStatus.published,
         extra_http_headers: dict[str, str] | None = None,
-        use_cache: bool = False,
+        generate_script: bool = False,
         cache_key: str | None = None,
     ) -> Workflow:
         return await app.DATABASE.create_workflow(
@@ -665,7 +671,7 @@ class WorkflowService:
             is_saved_task=is_saved_task,
             status=status,
             extra_http_headers=extra_http_headers,
-            use_cache=use_cache,
+            generate_script=generate_script,
             cache_key=cache_key,
         )
 
@@ -1548,7 +1554,7 @@ class WorkflowService:
                     version=existing_version + 1,
                     is_saved_task=request.is_saved_task,
                     status=request.status,
-                    use_cache=request.use_cache,
+                    generate_script=request.generate_script,
                     cache_key=request.cache_key,
                 )
             else:
@@ -1567,7 +1573,7 @@ class WorkflowService:
                     extra_http_headers=request.extra_http_headers,
                     is_saved_task=request.is_saved_task,
                     status=request.status,
-                    use_cache=request.use_cache,
+                    generate_script=request.generate_script,
                     cache_key=request.cache_key,
                 )
             # Keeping track of the new workflow id to delete it if an error occurs during the creation process
@@ -2278,21 +2284,37 @@ class WorkflowService:
                 "Found cached script for workflow",
                 workflow_id=workflow.workflow_id,
                 cache_key_value=rendered_cache_key_value,
+                workflow_run_id=workflow_run.workflow_run_id,
             )
             return
 
+        created_script = await app.DATABASE.create_script(
+            organization_id=workflow.organization_id,
+            run_id=workflow_run.workflow_run_id,
+        )
+
         # 3) Generate script code from workflow run
         try:
+            LOG.info(
+                "Generating script for workflow",
+                workflow_run_id=workflow_run.workflow_run_id,
+                workflow_id=workflow.workflow_id,
+                workflow_name=workflow.title,
+                cache_key_value=rendered_cache_key_value,
+            )
             codegen_input = await transform_workflow_run_to_code_gen_input(
                 workflow_run_id=workflow_run.workflow_run_id,
                 organization_id=workflow.organization_id,
             )
-            python_src = generate_python_workflow_script(
+            python_src = await generate_python_workflow_script(
                 file_name=codegen_input.file_name,
                 workflow_run_request=codegen_input.workflow_run,
                 workflow=codegen_input.workflow,
                 tasks=codegen_input.workflow_blocks,
                 actions_by_task=codegen_input.actions_by_task,
+                organization_id=workflow.organization_id,
+                script_id=created_script.script_id,
+                script_revision_id=created_script.script_revision_id,
             )
         except Exception:
             LOG.error("Failed to generate workflow script source", exc_info=True)
@@ -2310,29 +2332,22 @@ class WorkflowService:
             )
         ]
 
-        created = await app.DATABASE.create_script(
-            organization_id=workflow.organization_id,
-            run_id=workflow_run.workflow_run_id,
-        )
-
         # Upload script file(s) as artifacts and create rows
         await script_service.build_file_tree(
             files=files,
             organization_id=workflow.organization_id,
-            script_id=created.script_id,
-            script_version=created.version,
-            script_revision_id=created.script_revision_id,
+            script_id=created_script.script_id,
+            script_version=created_script.version,
+            script_revision_id=created_script.script_revision_id,
         )
 
         # Record the workflow->script mapping for cache lookup
         await app.DATABASE.create_workflow_script(
             organization_id=workflow.organization_id,
-            script_id=created.script_id,
+            script_id=created_script.script_id,
             workflow_permanent_id=workflow.workflow_permanent_id,
             cache_key=cache_key or "",
             cache_key_value=rendered_cache_key_value,
             workflow_id=workflow.workflow_id,
             workflow_run_id=workflow_run.workflow_run_id,
         )
-
-        return

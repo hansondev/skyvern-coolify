@@ -1363,7 +1363,7 @@ class AgentDB:
         version: int | None = None,
         is_saved_task: bool = False,
         status: WorkflowStatus = WorkflowStatus.published,
-        use_cache: bool = False,
+        generate_script: bool = False,
         cache_key: str | None = None,
     ) -> Workflow:
         async with self.Session() as session:
@@ -1382,7 +1382,7 @@ class AgentDB:
                 model=model,
                 is_saved_task=is_saved_task,
                 status=status,
-                use_cache=use_cache,
+                generate_script=generate_script,
                 cache_key=cache_key,
             )
             if workflow_permanent_id:
@@ -1562,7 +1562,7 @@ class AgentDB:
         description: str | None = None,
         workflow_definition: dict[str, Any] | None = None,
         version: int | None = None,
-        use_cache: bool | None = None,
+        generate_script: bool | None = None,
         cache_key: str | None = None,
     ) -> Workflow:
         try:
@@ -1581,8 +1581,8 @@ class AgentDB:
                         workflow.workflow_definition = workflow_definition
                     if version is not None:
                         workflow.version = version
-                    if use_cache is not None:
-                        workflow.use_cache = use_cache
+                    if generate_script is not None:
+                        workflow.generate_script = generate_script
                     if cache_key is not None:
                         workflow.cache_key = cache_key
                     await session.commit()
@@ -3742,31 +3742,71 @@ class AgentDB:
         mime_type: str | None = None,
         encoding: str = "utf-8",
         artifact_id: str | None = None,
-    ) -> None:
-        """Create a script file record."""
-        try:
-            async with self.Session() as session:
-                script_file = ScriptFileModel(
-                    script_revision_id=script_revision_id,
-                    script_id=script_id,
-                    organization_id=organization_id,
-                    file_path=file_path,
-                    file_name=file_name,
-                    file_type=file_type,
-                    content_hash=content_hash,
-                    file_size=file_size,
-                    mime_type=mime_type,
-                    encoding=encoding,
-                    artifact_id=artifact_id,
+    ) -> ScriptFile:
+        """Create a script file."""
+        async with self.Session() as session:
+            script_file = ScriptFileModel(
+                script_revision_id=script_revision_id,
+                script_id=script_id,
+                organization_id=organization_id,
+                file_path=file_path,
+                file_name=file_name,
+                file_type=file_type,
+                content_hash=content_hash,
+                file_size=file_size,
+                mime_type=mime_type,
+                encoding=encoding,
+                artifact_id=artifact_id,
+            )
+            session.add(script_file)
+            await session.commit()
+            await session.refresh(script_file)
+            return convert_to_script_file(script_file)
+
+    async def create_script_block(
+        self,
+        script_revision_id: str,
+        script_id: str,
+        organization_id: str,
+        script_block_label: str,
+        script_file_id: str | None = None,
+    ) -> ScriptBlock:
+        """Create a script block."""
+        async with self.Session() as session:
+            script_block = ScriptBlockModel(
+                script_revision_id=script_revision_id,
+                script_id=script_id,
+                organization_id=organization_id,
+                script_block_label=script_block_label,
+                script_file_id=script_file_id,
+            )
+            session.add(script_block)
+            await session.commit()
+            await session.refresh(script_block)
+            return convert_to_script_block(script_block)
+
+    async def update_script_block(
+        self,
+        script_block_id: str,
+        organization_id: str,
+        script_file_id: str | None = None,
+    ) -> ScriptBlock:
+        async with self.Session() as session:
+            script_block = (
+                await session.scalars(
+                    select(ScriptBlockModel)
+                    .filter_by(script_block_id=script_block_id)
+                    .filter_by(organization_id=organization_id)
                 )
-                session.add(script_file)
+            ).first()
+            if script_block:
+                if script_file_id:
+                    script_block.script_file_id = script_file_id
                 await session.commit()
-        except SQLAlchemyError:
-            LOG.error("SQLAlchemyError", exc_info=True)
-            raise
-        except Exception:
-            LOG.error("UnexpectedError", exc_info=True)
-            raise
+                await session.refresh(script_block)
+                return convert_to_script_block(script_block)
+            else:
+                raise NotFoundError("Script block not found")
 
     async def get_script_files(self, script_revision_id: str, organization_id: str) -> list[ScriptFile]:
         async with self.Session() as session:
