@@ -271,6 +271,7 @@ function FlowRenderer({
   const [debuggableBlockCount, setDebuggableBlockCount] = useState(0);
   const nodesInitialized = useNodesInitialized();
   const [shouldConstrainPan, setShouldConstrainPan] = useState(false);
+  const onNodesChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (nodesInitialized) {
@@ -713,7 +714,14 @@ function FlowRenderer({
               ) {
                 workflowChangesStore.setHasChanges(true);
               }
-              onNodesChange(changes);
+
+              // throttle onNodesChange to prevent cascading React updates
+              if (onNodesChangeTimeoutRef.current === null) {
+                onNodesChange(changes);
+                onNodesChangeTimeoutRef.current = setTimeout(() => {
+                  onNodesChangeTimeoutRef.current = null;
+                }, 33); // ~30fps throttle
+              }
             }}
             onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
