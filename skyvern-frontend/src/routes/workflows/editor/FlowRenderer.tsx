@@ -226,7 +226,7 @@ type Props = {
   initialTitle: string;
   // initialParameters: ParametersState;
   workflow: WorkflowApiResponse;
-  onDebuggableBlockCountChange: (count: number) => void;
+  onDebuggableBlockCountChange?: (count: number) => void;
   onMouseDownCapture?: () => void;
   zIndex?: number;
 };
@@ -305,7 +305,7 @@ function FlowRenderer({
       }
     }
 
-    onDebuggableBlockCountChange(debuggable.length);
+    onDebuggableBlockCountChange?.(debuggable.length);
   }, [nodes, edges, onDebuggableBlockCountChange]);
 
   const constructSaveData = useCallback((): WorkflowSaveData => {
@@ -485,8 +485,7 @@ function FlowRenderer({
    * TODO(jdo): hack
    */
   const getXLock = () => {
-    const hasForLoopNode = nodes.some((node) => node.type === "loop");
-    return hasForLoopNode ? 24 : 104;
+    return 24;
   };
 
   useOnChange(debugStore.isDebugMode, (newValue) => {

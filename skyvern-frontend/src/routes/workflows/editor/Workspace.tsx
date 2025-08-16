@@ -27,12 +27,15 @@ import {
   DialogTitle,
   DialogClose,
 } from "@/components/ui/dialog";
+import { SwitchBar } from "@/components/SwitchBar";
 import { toast } from "@/components/ui/use-toast";
 import { BrowserStream } from "@/components/BrowserStream";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { statusIsFinalized } from "@/routes/tasks/types.ts";
-import { WorkflowDebuggerRun } from "@/routes/workflows/editor/WorkflowDebuggerRun";
+import { DebuggerRun } from "@/routes/workflows/debugger/DebuggerRun";
 import { useWorkflowRunQuery } from "@/routes/workflows/hooks/useWorkflowRunQuery";
+import { DebuggerRunOutput } from "@/routes/workflows/debugger/DebuggerRunOutput";
+import { DebuggerPostRunParameters } from "@/routes/workflows/debugger/DebuggerPostRunParameters";
 import { useDebugStore } from "@/store/useDebugStore";
 import { useWorkflowPanelStore } from "@/store/WorkflowPanelStore";
 import {
@@ -80,11 +83,11 @@ function Workspace({
   showBrowser = false,
   workflow,
 }: Props) {
-  const { blockLabel, workflowPermanentId } = useParams();
+  const { blockLabel, workflowPermanentId, workflowRunId } = useParams();
+  const [content, setContent] = useState("actions");
   const { workflowPanelState, setWorkflowPanelState, closeWorkflowPanel } =
     useWorkflowPanelStore();
   const debugStore = useDebugStore();
-  const [debuggableBlockCount, setDebuggableBlockCount] = useState(0);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const saveWorkflow = useWorkflowSave();
@@ -111,8 +114,10 @@ function Workspace({
   ]);
 
   // ---start fya: https://github.com/frontyardart
+  const hasForLoopNode = nodes.some((node) => node.type === "loop");
+
   const initialBrowserPosition = {
-    x: 600,
+    x: hasForLoopNode ? 600 : 520,
     y: 132,
   };
 
@@ -139,6 +144,18 @@ function Workspace({
   });
 
   const workflowChangesStore = useWorkflowHasChangesStore();
+
+  /**
+   * Open a new tab (not window) with the browser session URL.
+   */
+  const handleOnBreakout = () => {
+    if (activeDebugSession) {
+      const pbsId = activeDebugSession.browser_session_id;
+      if (pbsId) {
+        window.open(`${location.origin}/browser-session/${pbsId}`, "_blank");
+      }
+    }
+  };
 
   const handleOnCycle = () => {
     setOpenDialogue(true);
@@ -384,7 +401,6 @@ function Workspace({
         }}
       >
         <WorkflowHeader
-          debuggableBlockCount={debuggableBlockCount}
           saving={workflowChangesStore.saveIsPending}
           parametersPanelOpen={
             workflowPanelState.active &&
@@ -433,8 +449,14 @@ function Workspace({
       {/* sub panels */}
       {workflowPanelState.active && (
         <div
-          className="absolute right-6 top-[7.75rem]"
-          style={{ zIndex: rankedItems.dropdown ?? 2 }}
+          className="absolute right-6 top-[8.5rem]"
+          style={{
+            height:
+              workflowPanelState.content === "nodeLibrary"
+                ? "calc(100vh - 9.5rem)"
+                : "unset",
+            zIndex: rankedItems.dropdown ?? 2,
+          }}
           onMouseDownCapture={() => {
             promote("dropdown");
           }}
@@ -468,9 +490,38 @@ function Workspace({
             promote("history");
           }}
         >
-          <div className="pointer-events-none absolute right-0 top-0 flex h-full w-[400px] flex-col items-end justify-end">
-            <div className="pointer-events-auto relative h-full w-full overflow-hidden rounded-xl border-2 border-slate-500">
-              <WorkflowDebuggerRun />
+          <div className="pointer-events-none absolute right-0 top-0 flex h-full w-[400px] flex-col items-end justify-end bg-slate-900">
+            <div className="pointer-events-auto relative flex h-full w-full flex-col items-start overflow-hidden rounded-xl border border-slate-700">
+              {workflowRunId && (
+                <SwitchBar
+                  className="m-2 border-none"
+                  onChange={(value) => setContent(value)}
+                  value={content}
+                  options={[
+                    {
+                      label: "Actions",
+                      value: "actions",
+                    },
+                    {
+                      label: "Inputs",
+                      value: "inputs",
+                    },
+                    {
+                      label: "Outputs",
+                      value: "outputs",
+                    },
+                  ]}
+                />
+              )}
+              <div className="h-full w-full overflow-hidden overflow-y-auto">
+                {(!workflowRunId || content === "actions") && <DebuggerRun />}
+                {workflowRunId && content === "inputs" && (
+                  <DebuggerPostRunParameters />
+                )}
+                {workflowRunId && content === "outputs" && (
+                  <DebuggerRunOutput />
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -487,7 +538,6 @@ function Workspace({
         initialTitle={initialTitle}
         // initialParameters={initialParameters}
         workflow={workflow}
-        onDebuggableBlockCountChange={(c) => setDebuggableBlockCount(c)}
         onMouseDownCapture={() => promote("infiniteCanvas")}
         zIndex={rankedItems.infiniteCanvas}
       />
@@ -500,12 +550,14 @@ function Workspace({
           initialPosition={initialBrowserPosition}
           initialWidth={initialWidth}
           initialHeight={initialHeight}
+          showBreakoutButton={activeDebugSession !== null}
           showMaximizeButton={true}
           showMinimizeButton={true}
           showPowerButton={blockLabel === undefined && showPowerButton}
           showReloadButton={true}
           zIndex={rankedItems.browserWindow ?? 4}
           // --
+          onBreakout={handleOnBreakout}
           onCycle={handleOnCycle}
           onFocus={() => promote("browserWindow")}
         >
