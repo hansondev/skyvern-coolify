@@ -79,6 +79,8 @@ import {
 } from "./workflowEditorUtils";
 import { useAutoPan } from "./useAutoPan";
 
+const nextTick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 function convertToParametersYAML(
   parameters: ParametersState,
 ): Array<
@@ -619,12 +621,20 @@ function FlowRenderer({
             ) {
               workflowChangesStore.setHasChanges(true);
             }
-            // throttle onNodesChange to prevent cascading React updates
+
+            // only allow one update in _this_ render cycle
             if (onNodesChangeTimeoutRef.current === null) {
               onNodesChange(changes);
               onNodesChangeTimeoutRef.current = setTimeout(() => {
                 onNodesChangeTimeoutRef.current = null;
-              }, 33); // ~30fps throttle
+              }, 0);
+            } else {
+              // if we have an update in this render cycle already, then to
+              // prevent max recursion errors, defer the update to next render
+              // cycle
+              nextTick().then(() => {
+                onNodesChange(changes);
+              });
             }
           }}
           onEdgesChange={onEdgesChange}
