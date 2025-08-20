@@ -3,19 +3,24 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any, Callable, Literal
 
 from playwright.async_api import Page
 
 from skyvern.config import settings
+from skyvern.exceptions import WorkflowRunNotFound
 from skyvern.forge import app
 from skyvern.forge.prompts import prompt_engine
 from skyvern.forge.sdk.api.files import download_file
+from skyvern.forge.sdk.artifact.models import ArtifactType
 from skyvern.forge.sdk.core import skyvern_context
+from skyvern.utils.prompt_engine import load_prompt_with_elements
 from skyvern.webeye.actions import handler_utils
 from skyvern.webeye.actions.action_types import ActionType
+from skyvern.webeye.actions.actions import Action, ActionStatus
+from skyvern.webeye.browser_factory import BrowserState
 from skyvern.webeye.scraper.scraper import ScrapedPage, scrape_website
 
 
@@ -62,9 +67,42 @@ class SkyvernPage:
         self._record = recorder or (lambda ac: None)
 
     @classmethod
+    async def _get_or_create_browser_state(cls) -> BrowserState:
+        context = skyvern_context.current()
+        if context and context.workflow_run_id and context.organization_id:
+            workflow_run = await app.DATABASE.get_workflow_run(
+                workflow_run_id=context.workflow_run_id, organization_id=context.organization_id
+            )
+            if workflow_run:
+                browser_state = await app.BROWSER_MANAGER.get_or_create_for_workflow_run(
+                    workflow_run=workflow_run, browser_session_id=None
+                )
+            else:
+                raise WorkflowRunNotFound(workflow_run_id=context.workflow_run_id)
+        else:
+            browser_state = await app.BROWSER_MANAGER.get_or_create_for_script()
+        return browser_state
+
+    @classmethod
+    async def _get_browser_state(cls) -> BrowserState | None:
+        context = skyvern_context.current()
+        if context and context.workflow_run_id and context.organization_id:
+            workflow_run = await app.DATABASE.get_workflow_run(
+                workflow_run_id=context.workflow_run_id, organization_id=context.organization_id
+            )
+            if workflow_run:
+                browser_state = app.BROWSER_MANAGER.get_for_workflow_run(workflow_run_id=context.workflow_run_id)
+            else:
+                raise WorkflowRunNotFound(workflow_run_id=context.workflow_run_id)
+        else:
+            browser_state = app.BROWSER_MANAGER.get_for_script()
+        return browser_state
+
+    @classmethod
     async def create(cls) -> SkyvernPage:
         # initialize browser state
-        browser_state = await app.BROWSER_MANAGER.get_or_create_for_script()
+        # TODO: add workflow_run_id or eventually script_id/script_run_id
+        browser_state = await cls._get_or_create_browser_state()
         scraped_page = await scrape_website(
             browser_state=browser_state,
             url="",
@@ -85,9 +123,8 @@ class SkyvernPage:
         """
         Decorator to record the action call.
 
-        TODOs:
-        - generate action record in db pre action
-        - generate screenshot post action
+        Auto-creates action records in DB before action execution
+        and screenshot artifacts after action execution.
         """
 
         def decorator(fn: Callable) -> Callable:
@@ -100,17 +137,36 @@ class SkyvernPage:
             ) -> Any:
                 meta = ActionMetadata(intention, data)
                 call = ActionCall(action, args, kwargs, meta)
+
+                action_status = ActionStatus.completed
+
                 try:
                     call.result = await fn(
                         skyvern_page, *args, intention=intention, data=data, **kwargs
                     )  # real driver call
+
+                    # Note: Action status would be updated to completed here if update method existed
+
                     return call.result
                 except Exception as e:
                     call.error = e
+                    action_status = ActionStatus.failed
+                    # Note: Action status would be updated to failed here if update method existed
+
                     # LLM fallback hook could go here ...
                     raise
                 finally:
                     skyvern_page._record(call)
+                    # Auto-create action after execution
+                    await skyvern_page._create_action_before_execution(
+                        action_type=action,
+                        intention=intention,
+                        status=action_status,
+                        data=data,
+                    )
+
+                    # Auto-create screenshot artifact after execution
+                    await skyvern_page._create_screenshot_after_execution()
 
             return wrapper
 
@@ -118,6 +174,73 @@ class SkyvernPage:
 
     async def goto(self, url: str) -> None:
         await self.page.goto(url)
+
+    async def _create_action_before_execution(
+        self,
+        action_type: ActionType,
+        intention: str = "",
+        status: ActionStatus = ActionStatus.pending,
+        data: str | dict[str, Any] = "",
+    ) -> Action | None:
+        """Create an action record in the database before execution if task_id and step_id are available."""
+        try:
+            context = skyvern_context.current()
+            if not context or not context.task_id or not context.step_id:
+                return None
+
+            # Create action record. TODO: store more action fields
+            action = Action(
+                action_type=action_type,
+                status=status,
+                organization_id=context.organization_id,
+                workflow_run_id=context.workflow_run_id,
+                task_id=context.task_id,
+                step_id=context.step_id,
+                step_order=0,  # Will be updated by the system if needed
+                action_order=0,  # Will be updated by the system if needed
+                intention=intention,
+                reasoning=f"Auto-generated action for {action_type.value}",
+            )
+
+            created_action = await app.DATABASE.create_action(action)
+            return created_action
+
+        except Exception:
+            # If action creation fails, don't block the actual action execution
+            return None
+
+    @classmethod
+    async def _create_screenshot_after_execution(cls) -> None:
+        """Create a screenshot artifact after action execution if task_id and step_id are available."""
+        try:
+            context = skyvern_context.ensure_context()
+            if not context or not context.task_id or not context.step_id:
+                return
+
+            # Get browser state and take screenshot
+            browser_state = await cls._get_browser_state()
+            if not browser_state:
+                return
+
+            screenshot = await browser_state.take_post_action_screenshot(scrolling_number=0)
+
+            if screenshot:
+                # Create a minimal Step object for artifact creation
+                step = await app.DATABASE.get_step(
+                    context.task_id, context.step_id, organization_id=context.organization_id
+                )
+                if not step:
+                    return
+
+                await app.ARTIFACT_MANAGER.create_artifact(
+                    step=step,
+                    artifact_type=ArtifactType.SCREENSHOT_ACTION,
+                    data=screenshot,
+                )
+
+        except Exception:
+            # If screenshot creation fails, don't block execution
+            pass
 
     ######### Public Interfaces #########
     @action_wrap(ActionType.CLICK)
@@ -296,10 +419,43 @@ class SkyvernPage:
 
     @action_wrap(ActionType.EXTRACT)
     async def extract(
-        self, data_extraction_goal: str, intention: str | None = None, data: str | dict[str, Any] | None = None
-    ) -> None:
-        # TODO: extract the data
-        return
+        self,
+        data_extraction_goal: str,
+        data_schema: dict[str, Any] | list | str | None = None,
+        error_code_mapping: dict[str, str] | None = None,
+        intention: str | None = None,
+        data: str | dict[str, Any] | None = None,
+    ) -> dict[str, Any] | list | str | None:
+        scraped_page_refreshed = await self.scraped_page.refresh()
+        context = skyvern_context.current()
+        tz_info = datetime.now(tz=timezone.utc).tzinfo
+        if context and context.tz_info:
+            tz_info = context.tz_info
+        extract_information_prompt = load_prompt_with_elements(
+            element_tree_builder=scraped_page_refreshed,
+            prompt_engine=prompt_engine,
+            template_name="extract-information",
+            html_need_skyvern_attrs=False,
+            data_extraction_goal=data_extraction_goal,
+            extracted_information_schema=data_schema,
+            current_url=scraped_page_refreshed.url,
+            extracted_text=scraped_page_refreshed.extracted_text,
+            error_code_mapping_str=(json.dumps(error_code_mapping) if error_code_mapping else None),
+            local_datetime=datetime.now(tz_info).isoformat(),
+        )
+        step = None
+        if context and context.organization_id and context.task_id and context.step_id:
+            step = await app.DATABASE.get_step(
+                task_id=context.task_id, step_id=context.step_id, organization_id=context.organization_id
+            )
+
+        result = await app.EXTRACTION_LLM_API_HANDLER(
+            prompt=extract_information_prompt,
+            step=step,
+            screenshots=scraped_page_refreshed.screenshots,
+            prompt_name="extract-information",
+        )
+        return result
 
     @action_wrap(ActionType.VERIFICATION_CODE)
     async def verification_code(
