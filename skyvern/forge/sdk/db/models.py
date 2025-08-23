@@ -583,6 +583,7 @@ class ActionModel(Base):
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
+    created_by = Column(String, nullable=True)
 
 
 class WorkflowRunBlockModel(Base):
@@ -839,11 +840,6 @@ class ScriptFileModel(Base):
 class WorkflowScriptModel(Base):
     __tablename__ = "workflow_scripts"
     __table_args__ = (
-        UniqueConstraint(
-            "workflow_permanent_id",
-            "cache_key_value",
-            name="uc_workflow_permanent_id_cache_key_value",
-        ),
         Index("idx_workflow_scripts_org_created", "organization_id", "created_at"),
         Index("idx_workflow_scripts_workflow_permanent_id", "workflow_permanent_id"),
     )
