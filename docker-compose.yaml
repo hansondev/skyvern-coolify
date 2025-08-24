@@ -55,7 +55,7 @@ services:
       # - OPENAI_API_KEY=${OPENAI_API_KEY} # Set this secret in the Coolify UI
       # Gemini Support:
       # To use, uncomment and set the GEMINI_API_KEY in the Coolify UI.
-      - LLM_KEY=GEMINI_FLASH_2_5_LITE
+      - LLM_KEY=GEMINI_FLASH_2_0_LITE
       - ENABLE_GEMINI=${ENABLE_GEMINI:-true}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       # Anthropic Support:
