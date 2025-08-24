@@ -55,10 +55,9 @@ services:
       # - OPENAI_API_KEY=${OPENAI_API_KEY} # Set this secret in the Coolify UI
       # Gemini Support:
       # To use, uncomment and set the GEMINI_API_KEY in the Coolify UI.
-      # - LLM_KEY=GEMINI
-      # - ENABLE_GEMINI=${ENABLE_GEMINI:-false}
-      # - GEMINI_API_KEY=${GEMINI_API_KEY}
-      # - LLM_KEY=GEMINI_2.5_PRO_PREVIEW_03_25
+      - LLM_KEY=GEMINI_FLASH_2_5_LITE
+      - ENABLE_GEMINI=${ENABLE_GEMINI:-true}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
       # Anthropic Support:
       # - ENABLE_ANTHROPIC=true
       # - LLM_KEY=ANTHROPIC_CLAUDE3.5_SONNET
@@ -82,11 +81,11 @@ services:
       # - OLLAMA_MODEL=qwen2.5:7b-instruct
       # - OLLAMA_SERVER_URL=http://host.docker.internal:11434
       # Open Router Support:
-      - ENABLE_OPENROUTER=${ENABLE_OPENROUTER:-true}
-      - LLM_KEY=OPENROUTER
-      - OPENROUTER_API_BASE=${OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-deepseek/deepseek-chat-v3-0324:free}
+      # - ENABLE_OPENROUTER=${ENABLE_OPENROUTER:-true}
+      # - LLM_KEY=OPENROUTER
+      # - OPENROUTER_API_BASE=${OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
+      # - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # - OPENROUTER_MODEL=${OPENROUTER_MODEL:-deepseek/deepseek-chat-v3-0324:free}
       # Groq Support:
       # - ENABLE_GROQ=true
       # - LLM_KEY=GROQ
