@@ -84,6 +84,7 @@ services:
       # Open Router Support:
       - ENABLE_OPENROUTER=${ENABLE_OPENROUTER:-true}
       - LLM_KEY=OPENROUTER
+      - OPENROUTER_API_BASE=${OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-deepseek/deepseek-chat-v3-0324:free}
       # Groq Support:
