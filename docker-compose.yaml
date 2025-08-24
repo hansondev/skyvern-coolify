@@ -82,10 +82,10 @@ services:
       # - OLLAMA_MODEL=qwen2.5:7b-instruct
       # - OLLAMA_SERVER_URL=http://host.docker.internal:11434
       # Open Router Support:
-       - ENABLE_OPENROUTER=true
-       - LLM_KEY=OPENROUTER
-       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-deepseek/deepseek-chat-v3-0324:free}
+      - ENABLE_OPENROUTER=true
+      - LLM_KEY=OPENROUTER
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-deepseek/deepseek-chat-v3-0324:free}
       # Groq Support:
       # - ENABLE_GROQ=true
       # - LLM_KEY=GROQ
