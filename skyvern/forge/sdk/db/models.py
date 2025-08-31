@@ -664,6 +664,7 @@ class TaskV2Model(Base):
     max_screenshot_scrolling_times = Column(Integer, nullable=True)
     extra_http_headers = Column(JSON, nullable=True)
     browser_address = Column(String, nullable=True)
+    generate_script = Column(Boolean, nullable=False, default=False)
 
     queued_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
@@ -863,7 +864,7 @@ class WorkflowScriptModel(Base):
     __tablename__ = "workflow_scripts"
     __table_args__ = (
         Index("idx_workflow_scripts_org_created", "organization_id", "created_at"),
-        Index("idx_workflow_scripts_workflow_permanent_id", "workflow_permanent_id"),
+        Index("idx_workflow_scripts_wpid_cache_key_value", "workflow_permanent_id", "cache_key_value"),
     )
 
     workflow_script_id = Column(String, primary_key=True, default=generate_workflow_script_id)

@@ -2639,6 +2639,7 @@ class AgentDB:
         max_screenshot_scrolling_times: int | None = None,
         extra_http_headers: dict[str, str] | None = None,
         browser_address: str | None = None,
+        generate_script: bool = False,
     ) -> TaskV2:
         async with self.Session() as session:
             new_task_v2 = TaskV2Model(
@@ -2658,6 +2659,7 @@ class AgentDB:
                 max_screenshot_scrolling_times=max_screenshot_scrolling_times,
                 extra_http_headers=extra_http_headers,
                 browser_address=browser_address,
+                generate_script=generate_script,
             )
             session.add(new_task_v2)
             await session.commit()
@@ -3967,6 +3969,7 @@ class AgentDB:
                     select(ScriptBlockModel)
                     .filter_by(script_revision_id=script_revision_id)
                     .filter_by(organization_id=organization_id)
+                    .order_by(ScriptBlockModel.created_at.asc())
                 )
             ).all()
             return [convert_to_script_block(record) for record in records]
