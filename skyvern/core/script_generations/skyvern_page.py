@@ -71,7 +71,7 @@ class SkyvernPage:
         self._record = recorder or (lambda ac: None)
 
     @classmethod
-    async def _get_or_create_browser_state(cls) -> BrowserState:
+    async def _get_or_create_browser_state(cls, browser_session_id: str | None = None) -> BrowserState:
         context = skyvern_context.current()
         if context and context.workflow_run_id and context.organization_id:
             workflow_run = await app.DATABASE.get_workflow_run(
@@ -79,12 +79,13 @@ class SkyvernPage:
             )
             if workflow_run:
                 browser_state = await app.BROWSER_MANAGER.get_or_create_for_workflow_run(
-                    workflow_run=workflow_run, browser_session_id=None
+                    workflow_run=workflow_run,
+                    browser_session_id=browser_session_id,
                 )
             else:
                 raise WorkflowRunNotFound(workflow_run_id=context.workflow_run_id)
         else:
-            browser_state = await app.BROWSER_MANAGER.get_or_create_for_script()
+            browser_state = await app.BROWSER_MANAGER.get_or_create_for_script(browser_session_id=browser_session_id)
         return browser_state
 
     @classmethod
@@ -103,10 +104,13 @@ class SkyvernPage:
         return browser_state
 
     @classmethod
-    async def create(cls) -> SkyvernPage:
+    async def create(
+        cls,
+        browser_session_id: str | None = None,
+    ) -> SkyvernPage:
         # initialize browser state
         # TODO: add workflow_run_id or eventually script_id/script_run_id
-        browser_state = await cls._get_or_create_browser_state()
+        browser_state = await cls._get_or_create_browser_state(browser_session_id=browser_session_id)
         scraped_page = await scrape_website(
             browser_state=browser_state,
             url="",
@@ -168,6 +172,7 @@ class SkyvernPage:
                         status=action_status,
                         data=data,
                         kwargs=kwargs,
+                        call_result=call.result,
                     )
 
                     # Auto-create screenshot artifact after execution
@@ -190,6 +195,7 @@ class SkyvernPage:
         status: ActionStatus = ActionStatus.pending,
         data: str | dict[str, Any] = "",
         kwargs: dict[str, Any] | None = None,
+        call_result: Any | None = None,
     ) -> Action | None:
         """Create an action record in the database before execution if task_id and step_id are available."""
         try:
@@ -206,6 +212,7 @@ class SkyvernPage:
             response: str | None = kwargs.get("response")
             if not response:
                 if action_type == ActionType.INPUT_TEXT:
+                    text = str(call_result)
                     response = text
                 elif action_type == ActionType.SELECT_OPTION:
                     if select_option:
@@ -339,34 +346,34 @@ class SkyvernPage:
         self,
         xpath: str,
         value: str,
-        ai_adapt_value: bool = False,
+        ai_infer: bool = False,
         intention: str | None = None,
         data: str | dict[str, Any] | None = None,
         timeout: float = settings.BROWSER_ACTION_TIMEOUT_MS,
-    ) -> None:
-        await self._input_text(xpath, value, ai_adapt_value, intention, data, timeout)
+    ) -> str:
+        return await self._input_text(xpath, value, ai_infer, intention, data, timeout)
 
     @action_wrap(ActionType.INPUT_TEXT)
     async def type(
         self,
         xpath: str,
         value: str,
-        ai_adapt_value: bool = False,
+        ai_infer: bool = False,
         intention: str | None = None,
         data: str | dict[str, Any] | None = None,
         timeout: float = settings.BROWSER_ACTION_TIMEOUT_MS,
-    ) -> None:
-        await self._input_text(xpath, value, ai_adapt_value, intention, data, timeout)
+    ) -> str:
+        return await self._input_text(xpath, value, ai_infer, intention, data, timeout)
 
     async def _input_text(
         self,
         xpath: str,
         value: str,
-        ai_adapt_value: bool = False,
+        ai_infer: bool = False,
         intention: str | None = None,
         data: str | dict[str, Any] | None = None,
         timeout: float = settings.BROWSER_ACTION_TIMEOUT_MS,
-    ) -> None:
+    ) -> str:
         """Input text into an element identified by ``xpath``.
 
         When ``intention`` and ``data`` are provided a new input text action is
@@ -380,10 +387,8 @@ class SkyvernPage:
         # format the text with the actual value of the parameter if it's a secret when running a workflow
         context = skyvern_context.current()
         value = value or ""
-        if context and context.workflow_run_id:
-            value = await _get_actual_value_of_parameter_if_secret(context.workflow_run_id, value)
-
-        if ai_adapt_value and intention:
+        transformed_value = value
+        if ai_infer and intention:
             try:
                 prompt = context.prompt if context else None
                 # Build the element tree of the current page for the prompt
@@ -404,8 +409,12 @@ class SkyvernPage:
             except Exception:
                 LOG.exception(f"Failed to adapt value for input text action on xpath={xpath}, value={value}")
 
+        if context and context.workflow_run_id:
+            transformed_value = await _get_actual_value_of_parameter_if_secret(context.workflow_run_id, value)
+
         locator = self.page.locator(f"xpath={xpath}")
-        await handler_utils.input_sequentially(locator, value, timeout=timeout)
+        await handler_utils.input_sequentially(locator, transformed_value, timeout=timeout)
+        return value
 
     @action_wrap(ActionType.UPLOAD_FILE)
     async def upload_file(
