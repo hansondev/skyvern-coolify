@@ -48,7 +48,6 @@ from skyvern.exceptions import (
     NoIncrementalElementFoundForAutoCompletion,
     NoIncrementalElementFoundForCustomSelection,
     NoSuitableAutoCompleteOption,
-    NoTOTPVerificationCodeFound,
     OptionIndexOutOfBound,
     WrongElementToUploadFile,
 )
@@ -64,10 +63,7 @@ from skyvern.forge.sdk.api.files import (
 from skyvern.forge.sdk.api.llm.api_handler_factory import LLMAPIHandlerFactory, LLMCallerManager
 from skyvern.forge.sdk.api.llm.exceptions import LLMProviderError
 from skyvern.forge.sdk.core import skyvern_context
-from skyvern.forge.sdk.core.aiohttp_helper import aiohttp_post
-from skyvern.forge.sdk.core.security import generate_skyvern_signature
 from skyvern.forge.sdk.core.skyvern_context import ensure_context
-from skyvern.forge.sdk.db.enums import OrganizationAuthTokenType
 from skyvern.forge.sdk.models import Step
 from skyvern.forge.sdk.schemas.tasks import Task
 from skyvern.forge.sdk.services.bitwarden import BitwardenConstants
@@ -784,9 +780,9 @@ async def handle_sequential_click_for_dropdown(
         action=AbstractActionForContextParse(
             reasoning=action.reasoning, intention=action.intention, element_id=action.element_id
         ),
-        step=step,
-        element_tree_builder=scraped_page,
         skyvern_element=anchor_element,
+        element_tree_builder=scraped_page,
+        step=step,
     )
 
     if dropdown_select_context.is_date_related:
@@ -3425,9 +3421,20 @@ async def normal_select(
     action_result: List[ActionResult] = []
     is_success = False
     locator = skyvern_element.get_locator()
+
     input_or_select_context = await _get_input_or_select_context(
-        action=action, element_tree_builder=builder, step=step, skyvern_element=skyvern_element
+        action=action,
+        element_tree_builder=builder,
+        step=step,
+        skyvern_element=skyvern_element,
     )
+    LOG.info(
+        "Parsed input/select context",
+        context=input_or_select_context,
+        task_id=task.task_id,
+        step_id=step.step_id,
+    )
+
     await skyvern_element.refresh_select_options()
     options_html = skyvern_element.build_HTML()
     field_information = (
@@ -3653,106 +3660,6 @@ async def get_input_value(tag_name: str, locator: Locator) -> str | None:
     return await locator.inner_text()
 
 
-async def poll_verification_code(
-    task_id: str,
-    organization_id: str,
-    workflow_id: str | None = None,
-    workflow_run_id: str | None = None,
-    workflow_permanent_id: str | None = None,
-    totp_verification_url: str | None = None,
-    totp_identifier: str | None = None,
-) -> str | None:
-    timeout = timedelta(minutes=settings.VERIFICATION_CODE_POLLING_TIMEOUT_MINS)
-    start_datetime = datetime.utcnow()
-    timeout_datetime = start_datetime + timeout
-    org_token = await app.DATABASE.get_valid_org_auth_token(organization_id, OrganizationAuthTokenType.api)
-    if not org_token:
-        LOG.error("Failed to get organization token when trying to get verification code")
-        return None
-    # wait for 40 seconds to let the verification code comes in before polling
-    await asyncio.sleep(settings.VERIFICATION_CODE_INITIAL_WAIT_TIME_SECS)
-    while True:
-        # check timeout
-        if datetime.utcnow() > timeout_datetime:
-            LOG.warning("Polling verification code timed out")
-            raise NoTOTPVerificationCodeFound(
-                task_id=task_id,
-                workflow_run_id=workflow_run_id,
-                workflow_id=workflow_permanent_id,
-                totp_verification_url=totp_verification_url,
-                totp_identifier=totp_identifier,
-            )
-        verification_code = None
-        if totp_verification_url:
-            verification_code = await _get_verification_code_from_url(
-                task_id,
-                totp_verification_url,
-                org_token.token,
-                workflow_run_id=workflow_run_id,
-            )
-        elif totp_identifier:
-            verification_code = await _get_verification_code_from_db(
-                task_id,
-                organization_id,
-                totp_identifier,
-                workflow_id=workflow_permanent_id,
-                workflow_run_id=workflow_run_id,
-            )
-        if verification_code:
-            LOG.info("Got verification code", verification_code=verification_code)
-            return verification_code
-
-        await asyncio.sleep(10)
-
-
-async def _get_verification_code_from_url(
-    task_id: str,
-    url: str,
-    api_key: str,
-    workflow_run_id: str | None = None,
-    workflow_permanent_id: str | None = None,
-) -> str | None:
-    request_data = {"task_id": task_id}
-    if workflow_run_id:
-        request_data["workflow_run_id"] = workflow_run_id
-    if workflow_permanent_id:
-        request_data["workflow_permanent_id"] = workflow_permanent_id
-    payload = json.dumps(request_data)
-    signature = generate_skyvern_signature(
-        payload=payload,
-        api_key=api_key,
-    )
-    timestamp = str(int(datetime.utcnow().timestamp()))
-    headers = {
-        "x-skyvern-timestamp": timestamp,
-        "x-skyvern-signature": signature,
-        "Content-Type": "application/json",
-    }
-    json_resp = await aiohttp_post(url=url, data=request_data, headers=headers, raise_exception=False)
-    return json_resp.get("verification_code", None)
-
-
-async def _get_verification_code_from_db(
-    task_id: str,
-    organization_id: str,
-    totp_identifier: str,
-    workflow_id: str | None = None,
-    workflow_run_id: str | None = None,
-) -> str | None:
-    totp_codes = await app.DATABASE.get_totp_codes(organization_id=organization_id, totp_identifier=totp_identifier)
-    for totp_code in totp_codes:
-        if totp_code.workflow_run_id and workflow_run_id and totp_code.workflow_run_id != workflow_run_id:
-            continue
-        if totp_code.workflow_id and workflow_id and totp_code.workflow_id != workflow_id:
-            continue
-        if totp_code.task_id and totp_code.task_id != task_id:
-            continue
-        if totp_code.expired_at and totp_code.expired_at < datetime.utcnow():
-            continue
-        return totp_code.code
-    return None
-
-
 class AbstractActionForContextParse(BaseModel):
     reasoning: str | None
     element_id: str
@@ -3766,6 +3673,11 @@ async def _get_input_or_select_context(
     step: Step,
     ancestor_depth: int = 5,
 ) -> InputOrSelectContext:
+    # Early return optimization: if action already has input_or_select_context, use it
+    if not isinstance(action, AbstractActionForContextParse) and action.input_or_select_context is not None:
+        return action.input_or_select_context
+
+    # Ancestor depth optimization: use ancestor element for deep DOM structures
     skyvern_frame = await SkyvernFrame.create_instance(skyvern_element.get_frame())
     try:
         depth = await skyvern_frame.get_element_dom_depth(await skyvern_element.get_element_handler())
@@ -3784,7 +3696,7 @@ async def _get_input_or_select_context(
                     starter=element_handle,
                     frame=skyvern_element.get_frame_id(),
                 )
-                clean_up_func = app.AGENT_FUNCTION.cleanup_element_tree_factory()
+                clean_up_func = app.AGENT_FUNCTION.cleanup_element_tree_factory(step=step)
                 element_tree = await clean_up_func(skyvern_element.get_frame(), "", copy.deepcopy(element_tree))
                 element_tree_trimmed = trim_element_tree(copy.deepcopy(element_tree))
                 element_tree_builder = ScrapedPage(
@@ -3824,8 +3736,8 @@ async def extract_user_defined_errors(task: Task, step: Step, scraped_page: Scra
         navigation_goal=task.navigation_goal,
         navigation_payload_str=json.dumps(task.navigation_payload),
         elements=scraped_page_refreshed.build_element_tree(fmt=ElementTreeFormat.HTML),
-        current_url=task.url,
-        error_code_mapping_str=json.dumps(task.error_code_mapping) if task.error_code_mapping else {},
+        current_url=scraped_page_refreshed.url,
+        error_code_mapping_str=json.dumps(task.error_code_mapping) if task.error_code_mapping else "{}",
         local_datetime=datetime.now(skyvern_context.ensure_context().tz_info).isoformat(),
     )
     json_response = await app.EXTRACTION_LLM_API_HANDLER(

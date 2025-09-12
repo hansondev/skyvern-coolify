@@ -26,6 +26,7 @@ from skyvern.constants import (
     SPECIAL_FIELD_VERIFICATION_CODE,
     ScrapeType,
 )
+from skyvern.core.totp import poll_verification_code
 from skyvern.errors.errors import ReachMaxRetriesError, ReachMaxStepsError, UserDefinedError
 from skyvern.exceptions import (
     BrowserSessionNotFound,
@@ -96,7 +97,7 @@ from skyvern.webeye.actions.actions import (
     WebAction,
 )
 from skyvern.webeye.actions.caching import retrieve_action_plan
-from skyvern.webeye.actions.handler import ActionHandler, poll_verification_code
+from skyvern.webeye.actions.handler import ActionHandler
 from skyvern.webeye.actions.models import DetailedAgentStepOutput
 from skyvern.webeye.actions.parse_actions import (
     parse_actions,
@@ -2052,6 +2053,7 @@ class ForgeAgent:
             raise UnsupportedTaskType(task_type=task_type)
 
         context = skyvern_context.ensure_context()
+
         return load_prompt_with_elements(
             element_tree_builder=scraped_page,
             prompt_engine=prompt_engine,
@@ -2062,10 +2064,12 @@ class ForgeAgent:
             current_url=current_url,
             data_extraction_goal=task.data_extraction_goal,
             action_history=actions_and_results_str,
+            error_code_mapping_str=(json.dumps(task.error_code_mapping) if task.error_code_mapping else None),
             local_datetime=datetime.now(context.tz_info).isoformat(),
             verification_code_check=verification_code_check,
             complete_criterion=task.complete_criterion.strip() if task.complete_criterion else None,
             terminate_criterion=task.terminate_criterion.strip() if task.terminate_criterion else None,
+            parse_select_feature_enabled=context.enable_parse_select_in_extract,
         )
 
     def _build_navigation_payload(
@@ -2982,8 +2986,8 @@ class ForgeAgent:
                     workflow_id = workflow_run.workflow_id
                     workflow_permanent_id = workflow_run.workflow_permanent_id
             verification_code = await poll_verification_code(
-                task.task_id,
-                task.organization_id,
+                organization_id=task.organization_id,
+                task_id=task.task_id,
                 workflow_id=workflow_id,
                 workflow_run_id=task.workflow_run_id,
                 workflow_permanent_id=workflow_permanent_id,
