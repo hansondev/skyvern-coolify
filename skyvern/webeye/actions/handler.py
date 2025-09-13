@@ -67,8 +67,9 @@ from skyvern.forge.sdk.core.skyvern_context import ensure_context
 from skyvern.forge.sdk.models import Step
 from skyvern.forge.sdk.schemas.tasks import Task
 from skyvern.forge.sdk.services.bitwarden import BitwardenConstants
-from skyvern.forge.sdk.services.credentials import OnePasswordConstants
+from skyvern.forge.sdk.services.credentials import AzureVaultConstants, OnePasswordConstants
 from skyvern.forge.sdk.trace import TraceManager
+from skyvern.services.action_service import get_action_history
 from skyvern.services.task_v1_service import is_cua_task
 from skyvern.utils.prompt_engine import (
     CheckDateFormatResponse,
@@ -961,7 +962,9 @@ async def handle_input_text_action(
     if text is None:
         return [ActionFailure(FailedToFetchSecret())]
 
-    is_totp_value = text == BitwardenConstants.TOTP or text == OnePasswordConstants.TOTP
+    is_totp_value = (
+        text == BitwardenConstants.TOTP or text == OnePasswordConstants.TOTP or text == AzureVaultConstants.TOTP
+    )
     is_secret_value = text != action.text
 
     # dynamically validate the attr, since it could change into enabled after the previous actions
@@ -3600,7 +3603,10 @@ async def extract_information_for_navigation_goal(
         # CUA tasks should use the default data extraction llm key
         llm_key_override = None
 
-    llm_api_handler = LLMAPIHandlerFactory.get_override_llm_api_handler(llm_key_override, default=app.LLM_API_HANDLER)
+    # Use the appropriate LLM handler based on the feature flag
+    llm_api_handler = LLMAPIHandlerFactory.get_override_llm_api_handler(
+        llm_key_override, default=app.EXTRACTION_LLM_API_HANDLER
+    )
     json_response = await llm_api_handler(
         prompt=extract_information_prompt,
         step=step,
@@ -3730,6 +3736,7 @@ async def _get_input_or_select_context(
 
 
 async def extract_user_defined_errors(task: Task, step: Step, scraped_page: ScrapedPage) -> list[UserDefinedError]:
+    action_history = await get_action_history(task=task, current_step=step)
     scraped_page_refreshed = await scraped_page.refresh(draw_boxes=False)
     prompt = prompt_engine.load_prompt(
         "surface-user-defined-errors",
@@ -3737,6 +3744,7 @@ async def extract_user_defined_errors(task: Task, step: Step, scraped_page: Scra
         navigation_payload_str=json.dumps(task.navigation_payload),
         elements=scraped_page_refreshed.build_element_tree(fmt=ElementTreeFormat.HTML),
         current_url=scraped_page_refreshed.url,
+        action_history=json.dumps(action_history),
         error_code_mapping_str=json.dumps(task.error_code_mapping) if task.error_code_mapping else "{}",
         local_datetime=datetime.now(skyvern_context.ensure_context().tz_info).isoformat(),
     )

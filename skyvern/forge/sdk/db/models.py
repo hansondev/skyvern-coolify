@@ -1,5 +1,6 @@
 import datetime
 
+import sqlalchemy
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -23,6 +24,7 @@ from skyvern.forge.sdk.db.id import (
     generate_ai_suggestion_id,
     generate_artifact_id,
     generate_aws_secret_parameter_id,
+    generate_azure_vault_credential_parameter_id,
     generate_bitwarden_credit_card_data_parameter_id,
     generate_bitwarden_login_credential_parameter_id,
     generate_bitwarden_sensitive_information_parameter_id,
@@ -466,6 +468,30 @@ class OnePasswordCredentialParameterModel(Base):
     deleted_at = Column(DateTime, nullable=True)
 
 
+class AzureVaultCredentialParameterModel(Base):
+    __tablename__ = "azure_vault_credential_parameters"
+
+    azure_vault_credential_parameter_id = Column(
+        String, primary_key=True, default=generate_azure_vault_credential_parameter_id
+    )
+    workflow_id = Column(String, index=True, nullable=False)
+    key = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    vault_name = Column(String, nullable=False)
+    username_key = Column(String, nullable=False)
+    password_key = Column(String, nullable=False)
+    totp_secret_key = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    modified_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+        nullable=False,
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+
 class WorkflowRunParameterModel(Base):
     __tablename__ = "workflow_run_parameters"
 
@@ -779,6 +805,7 @@ class DebugSessionModel(Base):
     debug_session_id = Column(String, primary_key=True, default=generate_debug_session_id)
     organization_id = Column(String, nullable=False)
     browser_session_id = Column(String, nullable=False)
+    vnc_streaming_supported = Column(Boolean, nullable=True, server_default=sqlalchemy.true())
     workflow_permanent_id = Column(String, nullable=True)
     user_id = Column(String, nullable=True)  # comes from identity vendor (Clerk at time of writing)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)

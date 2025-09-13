@@ -81,6 +81,7 @@ from skyvern.forge.sdk.workflow.models.workflow import Workflow, WorkflowRun, Wo
 from skyvern.schemas.runs import CUA_ENGINES, RunEngine
 from skyvern.schemas.steps import AgentStepOutput
 from skyvern.services import run_service
+from skyvern.services.action_service import get_action_history
 from skyvern.services.task_v1_service import is_cua_task
 from skyvern.utils.image_resizer import Resolution
 from skyvern.utils.prompt_engine import MaxStepsReasonResponse, load_prompt_with_elements
@@ -999,6 +1000,8 @@ class ForgeAgent:
                         )
                         detailed_agent_step_output.llm_response = json_response
                         actions = parse_actions(task, step.step_id, step.order, scraped_page, json_response["actions"])
+                        if context:
+                            context.pop_totp_code(task.task_id)
                     except NoTOTPVerificationCodeFound:
                         actions = [
                             TerminateAction(
@@ -2098,47 +2101,7 @@ class ForgeAgent:
         return final_navigation_payload
 
     async def _get_action_results(self, task: Task, current_step: Step | None = None) -> str:
-        """
-        Get the action results from the last app.SETTINGS.PROMPT_ACTION_HISTORY_WINDOW steps.
-        If current_step is provided, the current executing step will be included in the action history.
-        Default is excluding the current executing step from the action history.
-        """
-
-        # Get action results from the last app.SETTINGS.PROMPT_ACTION_HISTORY_WINDOW steps
-        steps = await app.DATABASE.get_task_steps(task_id=task.task_id, organization_id=task.organization_id)
-        # the last step is always the newly created one and it should be excluded from the history window
-        window_steps = steps[-1 - settings.PROMPT_ACTION_HISTORY_WINDOW : -1]
-        if current_step:
-            window_steps.append(current_step)
-
-        actions_and_results: list[tuple[Action, list[ActionResult]]] = []
-        for window_step in window_steps:
-            if window_step.output and window_step.output.actions_and_results:
-                actions_and_results.extend(window_step.output.actions_and_results)
-
-        # exclude successful action from history
-        action_history = [
-            {
-                "action": action.model_dump(
-                    exclude_none=True,
-                    include={"action_type", "element_id", "status", "reasoning", "option", "download"},
-                ),
-                "results": [
-                    result.model_dump(
-                        exclude_none=True,
-                        include={
-                            "success",
-                            "exception_type",
-                            "exception_message",
-                        },
-                    )
-                    for result in results
-                ],
-            }
-            for action, results in actions_and_results
-            if len(results) > 0
-        ]
-        return json.dumps(action_history)
+        return json.dumps(await get_action_history(task=task, current_step=current_step))
 
     async def get_extracted_information_for_task(self, task: Task) -> dict[str, Any] | list | str | None:
         """
@@ -2630,12 +2593,15 @@ class ForgeAgent:
 
         # Track task duration when task is completed, failed, or terminated
         if status in [TaskStatus.completed, TaskStatus.failed, TaskStatus.terminated]:
-            duration_seconds = (datetime.now(UTC) - task.created_at.replace(tzinfo=UTC)).total_seconds()
+            start_time = task.started_at.replace(tzinfo=UTC) if task.started_at else task.created_at.replace(tzinfo=UTC)
+            queued_seconds = (start_time - task.created_at.replace(tzinfo=UTC)).total_seconds()
+            duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
             LOG.info(
                 "Task duration metrics",
                 task_id=task.task_id,
                 workflow_run_id=task.workflow_run_id,
                 duration_seconds=duration_seconds,
+                queued_seconds=queued_seconds,
                 task_status=status,
                 organization_id=task.organization_id,
             )
@@ -3003,7 +2969,6 @@ class ForgeAgent:
                 browser_state,
                 scraped_page,
                 verification_code_check=False,
-                expire_verification_code=True,
             )
             llm_key_override = task.llm_key
             if await is_cua_task(task=task):
@@ -3055,7 +3020,7 @@ class ForgeAgent:
             local_datetime=datetime.now(context.tz_info).isoformat(),
         )
 
-        data_extraction_summary_resp = await app.SECONDARY_LLM_API_HANDLER(
+        data_extraction_summary_resp = await app.EXTRACTION_LLM_API_HANDLER(
             prompt=prompt, step=step, prompt_name="data-extraction-summary"
         )
         return ExtractAction(
