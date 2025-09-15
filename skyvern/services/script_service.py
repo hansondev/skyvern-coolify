@@ -27,6 +27,7 @@ from skyvern.forge.sdk.core import skyvern_context
 from skyvern.forge.sdk.models import Step, StepStatus
 from skyvern.forge.sdk.schemas.files import FileInfo
 from skyvern.forge.sdk.schemas.tasks import Task, TaskOutput, TaskStatus
+from skyvern.forge.sdk.schemas.workflow_runs import WorkflowRunBlock
 from skyvern.forge.sdk.workflow.models.block import (
     CodeBlock,
     FileParserBlock,
@@ -271,6 +272,33 @@ async def execute_script(
     LOG.info("Script executed successfully", script_id=script_id)
 
 
+async def _take_workflow_run_block_screenshot(
+    workflow_run_id: str,
+    organization_id: str,
+    workflow_run_block: WorkflowRunBlock,
+) -> None:
+    """
+    This function is a copy of the block screenshot logic from the execute_safe function in the block.py file.
+    """
+    browser_state = app.BROWSER_MANAGER.get_for_workflow_run(workflow_run_id)
+    if not browser_state:
+        LOG.warning("No browser state found when creating workflow_run_block", workflow_run_id=workflow_run_id)
+    else:
+        screenshot = await browser_state.take_fullpage_screenshot(
+            use_playwright_fullpage=app.EXPERIMENTATION_PROVIDER.is_feature_enabled_cached(
+                "ENABLE_PLAYWRIGHT_FULLPAGE",
+                workflow_run_id,
+                properties={"organization_id": str(organization_id)},
+            )
+        )
+        if screenshot:
+            await app.ARTIFACT_MANAGER.create_workflow_run_block_artifact(
+                workflow_run_block=workflow_run_block,
+                artifact_type=ArtifactType.SCREENSHOT_LLM,
+                data=screenshot,
+            )
+
+
 async def _create_workflow_block_run_and_task(
     block_type: BlockType,
     prompt: str | None = None,
@@ -342,6 +370,12 @@ async def _create_workflow_block_run_and_task(
                 task_id=task_id,
                 organization_id=organization_id,
             )
+
+        await _take_workflow_run_block_screenshot(
+            workflow_run_id=workflow_run_id,
+            organization_id=organization_id,
+            workflow_run_block=workflow_run_block,
+        )
 
         context.step_id = step_id
         context.task_id = task_id
@@ -428,6 +462,7 @@ async def _update_workflow_block(
     label: str | None = None,
     failure_reason: str | None = None,
     output: dict[str, Any] | list | str | None = None,
+    ai_fallback_triggered: bool = False,
 ) -> None:
     """Update the status of a workflow run block."""
     try:
@@ -631,6 +666,13 @@ async def _fallback_to_ai_run(
             step=ai_step,
             task_block=task_block,
         )
+
+        # update workflow run to indicate that there's a script run
+        if workflow_run_id:
+            await app.DATABASE.update_workflow_run(
+                workflow_run_id=workflow_run_id,
+                ai_fallback_triggered=True,
+            )
 
         # Update block status to completed if workflow block was created
         if workflow_run_block_id:
@@ -1327,6 +1369,11 @@ async def run_script(
         )
         if not workflow_run:
             raise WorkflowRunNotFound(workflow_run_id=workflow_run_id)
+        # update workfow run to indicate that there's a script run
+        workflow_run = await app.DATABASE.update_workflow_run(
+            workflow_run_id=workflow_run_id,
+            ai_fallback_triggered=False,
+        )
         context.workflow_run_id = workflow_run_id
         context.organization_id = organization_id
 
