@@ -247,6 +247,7 @@ class WorkflowModel(Base):
     generate_script = Column(Boolean, default=False, nullable=False)
     ai_fallback = Column(Boolean, default=False, nullable=False)
     cache_key = Column(String, nullable=True)
+    run_sequentially = Column(Boolean, nullable=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(
@@ -284,6 +285,7 @@ class WorkflowRunModel(Base):
     extra_http_headers = Column(JSON, nullable=True)
     browser_address = Column(String, nullable=True)
     script_run = Column(JSON, nullable=True)
+    job_id = Column(String, nullable=True)
 
     queued_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
@@ -745,6 +747,7 @@ class PersistentBrowserSessionModel(Base):
     timeout_minutes = Column(Integer, nullable=True)
     ip_address = Column(String, nullable=True)
     ecs_task_arn = Column(String, nullable=True)
+    proxy_location = Column(String, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False, index=True)
@@ -893,7 +896,9 @@ class WorkflowScriptModel(Base):
     __tablename__ = "workflow_scripts"
     __table_args__ = (
         Index("idx_workflow_scripts_org_created", "organization_id", "created_at"),
-        Index("idx_workflow_scripts_wpid_cache_key_value", "workflow_permanent_id", "cache_key_value"),
+        Index(
+            "idx_workflow_scripts_wpid_cache_key_value", "workflow_permanent_id", "cache_key_value", "workflow_run_id"
+        ),
     )
 
     workflow_script_id = Column(String, primary_key=True, default=generate_workflow_script_id)
@@ -904,6 +909,7 @@ class WorkflowScriptModel(Base):
     workflow_run_id = Column(String, nullable=True)
     cache_key = Column(String, nullable=False)  # e.g. "test-{{ website_url }}-cache"
     cache_key_value = Column(String, nullable=False)  # e.g. "test-greenhouse.io/job/1-cache"
+    status = Column(String, nullable=True, default="published")
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     modified_at = Column(
