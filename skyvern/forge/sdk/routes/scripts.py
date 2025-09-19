@@ -295,12 +295,14 @@ async def get_workflow_script_blocks(
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     cache_key = block_script_request.cache_key or workflow.cache_key or ""
+    status = block_script_request.status
 
     scripts = await app.DATABASE.get_workflow_scripts_by_cache_key_value(
         organization_id=current_org.organization_id,
         workflow_permanent_id=workflow_permanent_id,
         cache_key_value=cache_key_value,
         cache_key=cache_key,
+        statuses=[status] if status else None,
     )
 
     if not scripts:
@@ -485,12 +487,12 @@ async def get_workflow_cache_key_values(
 
 
 @base_router.delete(
-    "/scripts/{workflow_permanent_id}/value/{cache_key_value}",
+    "/scripts/{workflow_permanent_id}/value",
     include_in_schema=False,
 )
 async def delete_workflow_cache_key_value(
     workflow_permanent_id: str,
-    cache_key_value: str,
+    cache_key_value: str = Query(alias="cache-key-value"),
     current_org: Organization = Depends(org_auth_service.get_current_org),
 ) -> dict[str, str]:
     """Delete a specific cache key value for a workflow."""

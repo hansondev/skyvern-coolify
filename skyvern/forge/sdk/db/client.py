@@ -107,7 +107,7 @@ from skyvern.forge.sdk.workflow.models.workflow import (
     WorkflowRunStatus,
 )
 from skyvern.schemas.runs import ProxyLocation, RunEngine, RunType
-from skyvern.schemas.scripts import Script, ScriptBlock, ScriptFile
+from skyvern.schemas.scripts import Script, ScriptBlock, ScriptFile, ScriptStatus
 from skyvern.schemas.steps import AgentStepOutput
 from skyvern.schemas.workflows import BlockStatus, BlockType, WorkflowStatus
 from skyvern.webeye.actions.actions import Action
@@ -1780,6 +1780,27 @@ class AgentDB:
                     query = query.filter_by(organization_id=organization_id)
                 query = query.filter_by(status=WorkflowRunStatus.queued)
                 query = query.order_by(WorkflowRunModel.modified_at.desc())
+                workflow_run = (await session.scalars(query)).first()
+                return convert_to_workflow_run(workflow_run) if workflow_run else None
+        except SQLAlchemyError:
+            LOG.error("SQLAlchemyError", exc_info=True)
+            raise
+
+    async def get_last_running_workflow_run(
+        self,
+        workflow_permanent_id: str,
+        organization_id: str | None = None,
+    ) -> WorkflowRun | None:
+        try:
+            async with self.Session() as session:
+                query = select(WorkflowRunModel).filter_by(workflow_permanent_id=workflow_permanent_id)
+                if organization_id:
+                    query = query.filter_by(organization_id=organization_id)
+                query = query.filter_by(status=WorkflowRunStatus.running)
+                query = query.filter(
+                    WorkflowRunModel.started_at.isnot(None)
+                )  # filter out workflow runs that does not have a started_at timestamp
+                query = query.order_by(WorkflowRunModel.started_at.desc())
                 workflow_run = (await session.scalars(query)).first()
                 return convert_to_workflow_run(workflow_run) if workflow_run else None
         except SQLAlchemyError:
@@ -4088,6 +4109,7 @@ class AgentDB:
         workflow_permanent_id: str,
         cache_key_value: str,
         cache_key: str | None = None,
+        statuses: list[ScriptStatus] | None = None,
     ) -> list[Script]:
         """Get latest script versions linked to a workflow by a specific cache_key_value."""
         try:
@@ -4103,6 +4125,9 @@ class AgentDB:
 
                 if cache_key is not None:
                     ws_script_ids_subquery = ws_script_ids_subquery.where(WorkflowScriptModel.cache_key == cache_key)
+
+                if statuses is not None and len(statuses) > 0:
+                    ws_script_ids_subquery = ws_script_ids_subquery.where(WorkflowScriptModel.status.in_(statuses))
 
                 # Latest version per script_id within the org and not deleted
                 latest_versions_subquery = (
