@@ -72,7 +72,7 @@ function StartNode({ id, data }: NodeProps<StartNode>) {
       ? data.maxScreenshotScrolls
       : null,
     extraHttpHeaders: data.withWorkflowSettings ? data.extraHttpHeaders : null,
-    useScriptCache: data.withWorkflowSettings ? data.useScriptCache : true, // TODO(jdo/always-generate): set to false
+    useScriptCache: data.withWorkflowSettings ? data.useScriptCache : false,
     scriptCacheKey: data.withWorkflowSettings ? data.scriptCacheKey : null,
     aiFallback: data.withWorkflowSettings ? data.aiFallback : true,
     runSequentially: data.withWorkflowSettings ? data.runSequentially : false,
@@ -211,52 +211,47 @@ function StartNode({ id, data }: NodeProps<StartNode>) {
                             <Label>Generate Code</Label>
                             <HelpTooltip content="Generate & use cached code for faster execution." />
                             <Switch
-                              disabled={true} // TODO(jdo/always-generate): remove
                               className="ml-auto"
-                              checked={true} // TODO(jdo/always-generate): set to `inputs.useScriptCache`
-                              onCheckedChange={
-                                (/*value*/) => {
-                                  // handleChange("useScriptCache", value); // TODO(jdo/always-generate): put back
-                                }
-                              }
+                              checked={inputs.useScriptCache}
+                              onCheckedChange={(value) => {
+                                handleChange("useScriptCache", value);
+                              }}
                             />
                           </div>
                         </div>
-                        {inputs.useScriptCache && (
-                          <div className="flex flex-col gap-4 rounded-md bg-slate-elevation4 p-4 pl-4">
-                            <div className="space-y-2">
-                              <div className="flex gap-2">
-                                <Label>Code Key (optional)</Label>
-                                <HelpTooltip content="A static or dynamic key for directing code generation." />
-                              </div>
-                              <WorkflowBlockInputTextarea
-                                nodeId={id}
-                                onChange={(value) => {
-                                  const v = value.length ? value : null;
-                                  handleChange("scriptCacheKey", v);
+                        {/* {inputs.useScriptCache && (  .. // TODO(jdo/always-generate): put back */}
+                        <div className="flex flex-col gap-4 rounded-md bg-slate-elevation4 p-4 pl-4">
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <Label>Code Key (optional)</Label>
+                              <HelpTooltip content="A static or dynamic key for directing code generation." />
+                            </div>
+                            <WorkflowBlockInputTextarea
+                              nodeId={id}
+                              onChange={(value) => {
+                                const v = value.length ? value : null;
+                                handleChange("scriptCacheKey", v);
+                              }}
+                              value={inputs.scriptCacheKey ?? ""}
+                              placeholder={placeholders["scripts"]["scriptKey"]}
+                              className="nopan text-xs"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Label>Fallback To AI On Failure</Label>
+                              <HelpTooltip content="If cached code fails, fallback to AI." />
+                              <Switch
+                                className="ml-auto"
+                                checked={inputs.aiFallback}
+                                onCheckedChange={(value) => {
+                                  handleChange("aiFallback", value);
                                 }}
-                                value={inputs.scriptCacheKey ?? ""}
-                                placeholder={
-                                  placeholders["scripts"]["scriptKey"]
-                                }
-                                className="nopan text-xs"
                               />
                             </div>
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-2">
-                                <Label>Fallback To AI On Failure</Label>
-                                <HelpTooltip content="If cached code fails, fallback to AI." />
-                                <Switch
-                                  className="ml-auto"
-                                  checked={inputs.aiFallback}
-                                  onCheckedChange={(value) => {
-                                    handleChange("aiFallback", value);
-                                  }}
-                                />
-                              </div>
-                            </div>
                           </div>
-                        )}
+                        </div>
+                        {/* )} */}
                       </div>
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
