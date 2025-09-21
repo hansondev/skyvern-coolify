@@ -1459,6 +1459,30 @@ class AgentDB:
             LOG.error("SQLAlchemyError", exc_info=True)
             raise
 
+    async def get_workflow_versions_by_permanent_id(
+        self,
+        workflow_permanent_id: str,
+        organization_id: str | None = None,
+        exclude_deleted: bool = True,
+    ) -> list[Workflow]:
+        """
+        Get all versions of a workflow by its permanent ID, ordered by version descending (newest first).
+        """
+        try:
+            get_workflows_query = select(WorkflowModel).filter_by(workflow_permanent_id=workflow_permanent_id)
+            if exclude_deleted:
+                get_workflows_query = get_workflows_query.filter(WorkflowModel.deleted_at.is_(None))
+            if organization_id:
+                get_workflows_query = get_workflows_query.filter_by(organization_id=organization_id)
+            get_workflows_query = get_workflows_query.order_by(WorkflowModel.version.desc())
+
+            async with self.Session() as session:
+                workflows = (await session.scalars(get_workflows_query)).all()
+                return [convert_to_workflow(workflow, self.debug_enabled) for workflow in workflows]
+        except SQLAlchemyError:
+            LOG.error("SQLAlchemyError", exc_info=True)
+            raise
+
     async def get_workflows_by_permanent_ids(
         self,
         workflow_permanent_ids: list[str],
@@ -1676,6 +1700,7 @@ class AgentDB:
         webhook_failure_reason: str | None = None,
         ai_fallback_triggered: bool | None = None,
         job_id: str | None = None,
+        run_with: str | None = None,
     ) -> WorkflowRun:
         async with self.Session() as session:
             workflow_run = (
@@ -1698,6 +1723,8 @@ class AgentDB:
                     workflow_run.script_run = {"ai_fallback_triggered": ai_fallback_triggered}
                 if job_id:
                     workflow_run.job_id = job_id
+                if run_with:
+                    workflow_run.run_with = run_with
                 await session.commit()
                 await session.refresh(workflow_run)
                 await save_workflow_run_logs(workflow_run_id)
