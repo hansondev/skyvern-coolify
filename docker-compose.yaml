@@ -25,7 +25,7 @@ services:
     # env_file is removed to manage variables in the Coolify UI.
     # replaced host-port bindings with internal exposes
     expose:
-      - "8000"   # container port (was ${SKYVERN_HOST_PORT}:8000)
+      - "8001"   # container port (was ${SKYVERN_HOST_PORT}:8000)
       - "9222"   # container port (was ${CDP_HOST_PORT}:9222)
     volumes:
       # Using named volumes for persistent artifact/log storage
@@ -129,7 +129,7 @@ services:
     restart: on-failure
     # host-port binding removed; expose container port only
     expose:
-      - "8080"
+      - "8081"
       # Port mapping below moved to artifact-server service
       # - "${UI_ARTIFACT_PORT:-9090}:9090"
     volumes:
