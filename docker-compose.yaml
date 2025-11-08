@@ -3,8 +3,8 @@ services:
     image: postgres:14-alpine
     restart: always
     # comment out if you want to externally connect DB
-    # ports:
-    #   - 5432:5432
+    ports:
+      - 5433:5432
     volumes:
       # Using a named volume for persistent database storage on the server
       - postgres-data:/var/lib/postgresql/data
